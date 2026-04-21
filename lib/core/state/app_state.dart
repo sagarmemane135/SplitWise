@@ -6,12 +6,23 @@ import 'dart:convert';
 import '../../domain/entities/expense.dart';
 import '../../domain/entities/group.dart';
 import '../../domain/entities/group_member.dart';
+import '../../features/collaboration/data/collaboration_transport.dart';
 
 class JoinLinkResult {
   const JoinLinkResult({required this.success, required this.message});
 
   final bool success;
   final String message;
+}
+
+class PendingJoinRequest {
+  const PendingJoinRequest({
+    required this.peerId,
+    required this.requestedName,
+  });
+
+  final String peerId;
+  final String requestedName;
 }
 
 class AppStateScope extends StatefulWidget {
@@ -63,6 +74,7 @@ class AppStateController extends ChangeNotifier {
   final Map<String, List<ExpenseItem>> _expensesByGroup = <String, List<ExpenseItem>>{};
   final Map<String, String> _identityByGroup = <String, String>{};
   final Map<String, String> _joinTokenByGroup = <String, String>{};
+  final CollaborationTransport _collaborationTransport = createCollaborationTransport();
   int _idCounter = 0;
 
   String? _activeGroupId;
@@ -70,12 +82,31 @@ class AppStateController extends ChangeNotifier {
   String? _localProfileUserId;
   String? _localProfileName;
   String? _localCurrencyCode;
+  bool _collaborationReady = false;
+  bool _isHostingSession = false;
+  bool _isApplyingRemoteSync = false;
+  String? _localPeerId;
+  String? _connectedHostPeerId;
+  String? _collaborationError;
+  final Set<String> _connectedPeerIds = <String>{};
+  final Map<String, String> _collaboratorNames = <String, String>{};
+  final List<PendingJoinRequest> _pendingJoinRequests = <PendingJoinRequest>[];
 
   bool get isInitialized => _isInitialized;
   bool get hasLocalProfile => _localProfileName != null && _localProfileUserId != null;
   String? get localProfileName => _localProfileName;
   String? get localProfileUserId => _localProfileUserId;
   String get localCurrencyCode => _localCurrencyCode ?? 'INR';
+  bool get collaborationReady => _collaborationReady;
+  bool get isHostingSession => _isHostingSession;
+  String? get localPeerId => _localPeerId;
+  String? get connectedHostPeerId => _connectedHostPeerId;
+  String? get collaborationError => _collaborationError;
+  List<String> get connectedPeerIds => _connectedPeerIds.toList(growable: false);
+  int get connectedPeerCount => _connectedPeerIds.length;
+  List<PendingJoinRequest> get pendingJoinRequests =>
+      List<PendingJoinRequest>.unmodifiable(_pendingJoinRequests);
+  Map<String, String> get collaboratorNames => Map<String, String>.unmodifiable(_collaboratorNames);
 
   List<ExpenseGroup> get groups => List<ExpenseGroup>.unmodifiable(_groups);
 
@@ -121,7 +152,114 @@ class AppStateController extends ChangeNotifier {
       _activeGroupId = _groups.isNotEmpty ? _groups.first.id : null;
     }
 
+    _wireCollaborationCallbacks();
+
     _isInitialized = true;
+    notifyListeners();
+  }
+
+  Future<String?> startCollaborationHost() async {
+    if (!hasLocalProfile) {
+      return 'Complete local profile setup first.';
+    }
+    await _ensureCollaborationReady();
+    _isHostingSession = true;
+    _connectedHostPeerId = null;
+    _collaborationError = null;
+    notifyListeners();
+    return null;
+  }
+
+  Future<String?> joinCollaborationHost(String hostPeerId) async {
+    if (!hasLocalProfile) {
+      return 'Complete local profile setup first.';
+    }
+    final String trimmed = hostPeerId.trim();
+    if (trimmed.isEmpty) {
+      return 'Host peer id is required.';
+    }
+
+    await _ensureCollaborationReady();
+    _isHostingSession = false;
+    _connectedHostPeerId = trimmed;
+    _collaborationError = null;
+    notifyListeners();
+
+    try {
+      await _collaborationTransport.connect(trimmed);
+      return null;
+    } catch (e) {
+      _collaborationError = e.toString();
+      notifyListeners();
+      return 'Failed to connect to host peer.';
+    }
+  }
+
+  void approveJoinRequest(String peerId) {
+    if (!_isHostingSession) {
+      return;
+    }
+    final PendingJoinRequest? request = _pendingJoinRequests
+        .where((PendingJoinRequest r) => r.peerId == peerId)
+        .cast<PendingJoinRequest?>()
+        .firstWhere((PendingJoinRequest? r) => r != null, orElse: () => null);
+    if (request == null) {
+      return;
+    }
+
+    final ExpenseGroup? group = activeGroup;
+    final GroupMember? identity = activeIdentity;
+    if (group == null || identity == null || identity.role != MemberRole.admin) {
+      _collaborationTransport.sendTo(peerId, <String, dynamic>{
+        'type': 'JOIN_REJECT',
+        'reason': 'Only admin host can approve joins.',
+      });
+      _pendingJoinRequests.removeWhere((PendingJoinRequest r) => r.peerId == peerId);
+      notifyListeners();
+      return;
+    }
+
+    GroupMember? existingMember;
+    for (final GroupMember member in group.members) {
+      if (member.name.trim().toLowerCase() == request.requestedName.trim().toLowerCase()) {
+        existingMember = member;
+        break;
+      }
+    }
+    if (existingMember == null) {
+      _collaborationTransport.sendTo(peerId, <String, dynamic>{
+        'type': 'JOIN_REJECT',
+        'reason': 'Requester name is not present in group members.',
+      });
+      _pendingJoinRequests.removeWhere((PendingJoinRequest r) => r.peerId == peerId);
+      notifyListeners();
+      return;
+    }
+
+    final String token = _joinTokenByGroup.putIfAbsent(group.id, _newInviteToken);
+    final String snapshot = _encodeGroupSnapshot(group, token);
+    _collaborationTransport.sendTo(peerId, <String, dynamic>{
+      'type': 'GROUP_SYNC',
+      'groupId': group.id,
+      'token': token,
+      'snapshot': snapshot,
+      'assignedMemberName': existingMember.name,
+      'hostPeerId': _localPeerId,
+      'collaborators': _collaboratorNames,
+    });
+
+    _collaboratorNames[peerId] = existingMember.name;
+    _pendingJoinRequests.removeWhere((PendingJoinRequest r) => r.peerId == peerId);
+    _broadcastPresence();
+    notifyListeners();
+  }
+
+  void rejectJoinRequest(String peerId, String reason) {
+    _collaborationTransport.sendTo(peerId, <String, dynamic>{
+      'type': 'JOIN_REJECT',
+      'reason': reason,
+    });
+    _pendingJoinRequests.removeWhere((PendingJoinRequest r) => r.peerId == peerId);
     notifyListeners();
   }
 
@@ -202,6 +340,9 @@ class AppStateController extends ChangeNotifier {
     _expensesByGroup[groupId] = <ExpenseItem>[];
     _joinTokenByGroup[groupId] = _newInviteToken();
     _persistAppState();
+    if (!_isApplyingRemoteSync) {
+      _broadcastActiveGroupUpdate();
+    }
     notifyListeners();
     return null;
   }
@@ -280,8 +421,16 @@ class AppStateController extends ChangeNotifier {
     }
 
     ExpenseGroup? group = _groupById(groupId);
-    if (group == null && snapshot != null && snapshot.isNotEmpty) {
-      group = _tryHydrateGroupFromSnapshot(snapshot, groupId, token);
+    if (snapshot != null && snapshot.isNotEmpty) {
+      final ExpenseGroup? synced = _tryHydrateGroupFromSnapshot(
+        snapshot,
+        groupId,
+        token,
+        upsertExisting: true,
+      );
+      if (synced != null) {
+        group = synced;
+      }
     }
     if (group == null) {
       return const JoinLinkResult(
@@ -335,6 +484,9 @@ class AppStateController extends ChangeNotifier {
     _activeGroupId = group.id;
     _identityByGroup[group.id] = localUserId;
     _persistAppState();
+    if (!_isApplyingRemoteSync) {
+      _broadcastActiveGroupUpdate();
+    }
     notifyListeners();
 
     return JoinLinkResult(
@@ -359,6 +511,9 @@ class AppStateController extends ChangeNotifier {
       _identityByGroup[groupId] = fallbackMemberId;
     }
     _persistAppState();
+    if (!_isApplyingRemoteSync) {
+      _broadcastActiveGroupUpdate();
+    }
     notifyListeners();
   }
 
@@ -375,6 +530,9 @@ class AppStateController extends ChangeNotifier {
       _activeGroupId = _groups.first.id;
     }
     _persistAppState();
+    if (!_isApplyingRemoteSync) {
+      _broadcastActiveGroupUpdate();
+    }
     notifyListeners();
     return null;
   }
@@ -423,6 +581,9 @@ class AppStateController extends ChangeNotifier {
     }
 
     _persistAppState();
+    if (!_isApplyingRemoteSync) {
+      _broadcastActiveGroupUpdate();
+    }
     notifyListeners();
     return null;
   }
@@ -437,6 +598,9 @@ class AppStateController extends ChangeNotifier {
     }
     _identityByGroup[group.id] = memberId;
     _persistAppState();
+    if (!_isApplyingRemoteSync) {
+      _broadcastActiveGroupUpdate();
+    }
     notifyListeners();
   }
 
@@ -475,6 +639,9 @@ class AppStateController extends ChangeNotifier {
       ..insert(0, expense);
     _expensesByGroup[group.id] = existing;
     _persistAppState();
+    if (!_isApplyingRemoteSync) {
+      _broadcastActiveGroupUpdate();
+    }
     notifyListeners();
     return null;
   }
@@ -520,6 +687,7 @@ class AppStateController extends ChangeNotifier {
   }
 
   String _encodeGroupSnapshot(ExpenseGroup group, String token) {
+    final List<ExpenseItem> expenses = _expensesByGroup[group.id] ?? const <ExpenseItem>[];
     final Map<String, dynamic> payload = <String, dynamic>{
       'groupId': group.id,
       'groupName': group.name,
@@ -533,11 +701,17 @@ class AppStateController extends ChangeNotifier {
             },
           )
           .toList(),
+      'expenses': expenses.map(_expenseToJson).toList(),
     };
     return base64Url.encode(utf8.encode(jsonEncode(payload)));
   }
 
-  ExpenseGroup? _tryHydrateGroupFromSnapshot(String snapshot, String groupId, String token) {
+  ExpenseGroup? _tryHydrateGroupFromSnapshot(
+    String snapshot,
+    String groupId,
+    String token, {
+    bool upsertExisting = false,
+  }) {
     try {
       final String decoded = utf8.decode(base64Url.decode(snapshot));
       final Map<String, dynamic> payload = jsonDecode(decoded) as Map<String, dynamic>;
@@ -548,6 +722,7 @@ class AppStateController extends ChangeNotifier {
 
       final String? groupName = payload['groupName'] as String?;
       final List<dynamic>? rawMembers = payload['members'] as List<dynamic>?;
+      final List<dynamic> rawExpenses = payload['expenses'] as List<dynamic>? ?? const <dynamic>[];
       if (groupName == null || groupName.trim().isEmpty || rawMembers == null) {
         return null;
       }
@@ -575,13 +750,33 @@ class AppStateController extends ChangeNotifier {
         return null;
       }
 
+      final List<ExpenseItem> expenses = <ExpenseItem>[];
+      for (final dynamic raw in rawExpenses) {
+        if (raw is! Map<String, dynamic>) {
+          continue;
+        }
+        final ExpenseItem? item = _expenseFromJson(raw);
+        if (item != null) {
+          expenses.add(item);
+        }
+      }
+
       final ExpenseGroup hydrated = ExpenseGroup(
         id: groupId,
         name: groupName,
         members: members,
       );
-      _groups.add(hydrated);
-      _expensesByGroup[groupId] = <ExpenseItem>[];
+
+      final ExpenseGroup? existing = _groupById(groupId);
+      if (existing == null) {
+        _groups.add(hydrated);
+      } else if (upsertExisting) {
+        _replaceGroup(hydrated);
+      }
+
+      if (existing == null || upsertExisting) {
+        _expensesByGroup[groupId] = expenses;
+      }
       _joinTokenByGroup[groupId] = token;
       _persistAppState();
       return hydrated;
@@ -616,6 +811,148 @@ class AppStateController extends ChangeNotifier {
 
     final String queryPart = fragment.substring(questionIndex + 1);
     return Uri(query: queryPart).queryParameters;
+  }
+
+  Future<void> _ensureCollaborationReady() async {
+    if (_collaborationReady) {
+      return;
+    }
+    _localPeerId = await _collaborationTransport.initPeer();
+    _collaborationReady = true;
+    notifyListeners();
+  }
+
+  void _wireCollaborationCallbacks() {
+    _collaborationTransport.onPeerOpen = (String peerId) {
+      _localPeerId = peerId;
+      _collaborationReady = true;
+      notifyListeners();
+    };
+
+    _collaborationTransport.onConnectionOpen = (String peerId) {
+      _connectedPeerIds.add(peerId);
+      if (!_isHostingSession && _localProfileName != null) {
+        _collaborationTransport.sendTo(peerId, <String, dynamic>{
+          'type': 'JOIN_REQUEST',
+          'name': _localProfileName,
+        });
+      }
+      _broadcastPresence();
+      notifyListeners();
+    };
+
+    _collaborationTransport.onConnectionClosed = (String peerId) {
+      _connectedPeerIds.remove(peerId);
+      _collaboratorNames.remove(peerId);
+      _pendingJoinRequests.removeWhere((PendingJoinRequest r) => r.peerId == peerId);
+      _broadcastPresence();
+      notifyListeners();
+    };
+
+    _collaborationTransport.onError = (String error) {
+      _collaborationError = error;
+      notifyListeners();
+    };
+
+    _collaborationTransport.onMessage = (CollaborationMessage message) {
+      _handleCollaborationMessage(message);
+    };
+  }
+
+  void _handleCollaborationMessage(CollaborationMessage message) {
+    final String type = (message.payload['type'] ?? '').toString();
+    if (type == 'JOIN_REQUEST' && _isHostingSession) {
+      final String name = (message.payload['name'] ?? '').toString().trim();
+      if (name.isNotEmpty) {
+        _pendingJoinRequests.removeWhere((PendingJoinRequest r) => r.peerId == message.fromPeerId);
+        _pendingJoinRequests.add(PendingJoinRequest(peerId: message.fromPeerId, requestedName: name));
+        notifyListeners();
+      }
+      return;
+    }
+
+    if (type == 'JOIN_REJECT' && !_isHostingSession) {
+      _collaborationError = (message.payload['reason'] ?? 'Join was rejected.').toString();
+      notifyListeners();
+      return;
+    }
+
+    if (type == 'GROUP_SYNC' || type == 'GROUP_UPDATE') {
+      _applyRemoteGroupSync(message.payload);
+      return;
+    }
+
+    if (type == 'COLLABORATOR_PRESENCE') {
+      final Map<String, dynamic>? namesRaw = message.payload['collaborators'] as Map<String, dynamic>?;
+      if (namesRaw != null) {
+        _collaboratorNames
+          ..clear()
+          ..addAll(namesRaw.map((String key, dynamic value) => MapEntry<String, String>(key, value.toString())));
+        notifyListeners();
+      }
+    }
+  }
+
+  void _applyRemoteGroupSync(Map<String, dynamic> payload) {
+    final String groupId = (payload['groupId'] ?? '').toString();
+    final String token = (payload['token'] ?? '').toString();
+    final String snapshot = (payload['snapshot'] ?? '').toString();
+    final String assignedName = (payload['assignedMemberName'] ?? '').toString();
+
+    if (groupId.isEmpty || token.isEmpty || snapshot.isEmpty) {
+      return;
+    }
+
+    _isApplyingRemoteSync = true;
+    final ExpenseGroup? group = _tryHydrateGroupFromSnapshot(
+      snapshot,
+      groupId,
+      token,
+      upsertExisting: true,
+    );
+    if (group != null) {
+      _activeGroupId = group.id;
+      if (assignedName.isNotEmpty) {
+        for (final GroupMember member in group.members) {
+          if (member.name.trim().toLowerCase() == assignedName.trim().toLowerCase()) {
+            _identityByGroup[group.id] = member.id;
+            break;
+          }
+        }
+      }
+      _persistAppState();
+      notifyListeners();
+    }
+    _isApplyingRemoteSync = false;
+  }
+
+  void _broadcastActiveGroupUpdate() {
+    if (_connectedPeerIds.isEmpty) {
+      return;
+    }
+    final ExpenseGroup? group = activeGroup;
+    if (group == null) {
+      return;
+    }
+    final String token = _joinTokenByGroup.putIfAbsent(group.id, _newInviteToken);
+    final String snapshot = _encodeGroupSnapshot(group, token);
+    _collaborationTransport.broadcast(<String, dynamic>{
+      'type': 'GROUP_UPDATE',
+      'groupId': group.id,
+      'token': token,
+      'snapshot': snapshot,
+    });
+  }
+
+  void _broadcastPresence() {
+    if (_connectedPeerIds.isEmpty) {
+      return;
+    }
+    _collaborationTransport.broadcast(<String, dynamic>{
+      'type': 'COLLABORATOR_PRESENCE',
+      'collaborators': _collaboratorNames,
+      'hostPeerId': _localPeerId,
+    });
   }
 
   void _persistAppState() {

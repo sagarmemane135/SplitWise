@@ -103,9 +103,70 @@ class ManagePage extends StatelessWidget {
         const SizedBox(height: 12),
         SectionCard(
           title: 'Collaboration',
-          subtitle: 'Use invite links to onboard members. Join flow auto-uses local profile details.',
+          subtitle:
+              'Peer status: ${appState.collaborationReady ? 'Ready' : 'Not started'} | Local Peer: ${appState.localPeerId ?? '-'} | Connected: ${appState.connectedPeerCount}',
           icon: Icons.wifi_tethering,
         ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: <Widget>[
+            FilledButton.icon(
+              onPressed: () => _startHostSession(context, appState),
+              icon: const Icon(Icons.hub_outlined),
+              label: const Text('Start host session'),
+            ),
+            FilledButton.tonalIcon(
+              onPressed: () => _showJoinPeerDialog(context, appState),
+              icon: const Icon(Icons.linked_camera_outlined),
+              label: const Text('Join by Peer ID'),
+            ),
+          ],
+        ),
+        if (appState.collaborationError != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              appState.collaborationError!,
+              style: const TextStyle(color: Colors.red),
+            ),
+          ),
+        if (appState.pendingJoinRequests.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text('Pending join requests', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 8),
+                ...appState.pendingJoinRequests.map(
+                  (PendingJoinRequest request) => Card(
+                    child: ListTile(
+                      title: Text(request.requestedName),
+                      subtitle: Text('Peer: ${request.peerId}'),
+                      trailing: Wrap(
+                        spacing: 6,
+                        children: <Widget>[
+                          TextButton(
+                            onPressed: () => appState.rejectJoinRequest(
+                              request.peerId,
+                              'Host rejected join request.',
+                            ),
+                            child: const Text('Reject'),
+                          ),
+                          FilledButton(
+                            onPressed: () => appState.approveJoinRequest(request.peerId),
+                            child: const Text('Approve'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         Wrap(
           spacing: 10,
           runSpacing: 10,
@@ -129,6 +190,76 @@ class ManagePage extends StatelessWidget {
           icon: Icons.picture_as_pdf,
         ),
       ],
+    );
+  }
+
+  Future<void> _startHostSession(BuildContext context, AppStateController appState) async {
+    final String? error = await appState.startCollaborationHost();
+    if (!context.mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(error ?? 'Host session is ready. Share your Peer ID.')),
+    );
+  }
+
+  Future<void> _showJoinPeerDialog(BuildContext context, AppStateController appState) async {
+    final TextEditingController controller = TextEditingController();
+    String? errorText;
+
+    await showDialog<void>(
+      context: context,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setState) {
+            return AlertDialog(
+              title: const Text('Join host by Peer ID'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  TextField(
+                    controller: controller,
+                    decoration: const InputDecoration(
+                      labelText: 'Host Peer ID',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  if (errorText != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(errorText!, style: const TextStyle(color: Colors.red)),
+                    ),
+                ],
+              ),
+              actions: <Widget>[
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    final String? error = await appState.joinCollaborationHost(controller.text);
+                    if (!context.mounted) {
+                      return;
+                    }
+                    if (error == null) {
+                      Navigator.of(context).pop();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Join request sent to host.')),
+                      );
+                    } else {
+                      setState(() {
+                        errorText = error;
+                      });
+                    }
+                  },
+                  child: const Text('Connect'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
