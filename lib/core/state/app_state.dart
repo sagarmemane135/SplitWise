@@ -19,10 +19,12 @@ class PendingJoinRequest {
   const PendingJoinRequest({
     required this.peerId,
     required this.requestedName,
+    this.groupId,
   });
 
   final String peerId;
   final String requestedName;
+  final String? groupId;
 }
 
 class AppStateScope extends StatefulWidget {
@@ -87,6 +89,7 @@ class AppStateController extends ChangeNotifier {
   bool _isApplyingRemoteSync = false;
   String? _localPeerId;
   String? _connectedHostPeerId;
+  String? _pendingInviteGroupId;
   String? _collaborationError;
   final Set<String> _connectedPeerIds = <String>{};
   final Map<String, String> _collaboratorNames = <String, String>{};
@@ -207,7 +210,11 @@ class AppStateController extends ChangeNotifier {
       return;
     }
 
-    final ExpenseGroup? group = activeGroup;
+    ExpenseGroup? group;
+    if (request.groupId != null && request.groupId!.isNotEmpty) {
+      group = _groupById(request.groupId!);
+    }
+    group ??= activeGroup;
     final GroupMember? identity = activeIdentity;
     if (group == null || identity == null || identity.role != MemberRole.admin) {
       _collaborationTransport.sendTo(peerId, <String, dynamic>{
@@ -226,21 +233,26 @@ class AppStateController extends ChangeNotifier {
         break;
       }
     }
+
+    ExpenseGroup effectiveGroup = group;
     if (existingMember == null) {
-      _collaborationTransport.sendTo(peerId, <String, dynamic>{
-        'type': 'JOIN_REJECT',
-        'reason': 'Requester name is not present in group members.',
-      });
-      _pendingJoinRequests.removeWhere((PendingJoinRequest r) => r.peerId == peerId);
-      notifyListeners();
-      return;
+      final GroupMember newMember = GroupMember(
+        id: _newId('member'),
+        name: request.requestedName,
+        role: MemberRole.member,
+      );
+      final List<GroupMember> members = List<GroupMember>.from(group.members)..add(newMember);
+      effectiveGroup = group.copyWith(members: members);
+      _replaceGroup(effectiveGroup);
+      existingMember = newMember;
+      _persistAppState();
     }
 
-    final String token = _joinTokenByGroup.putIfAbsent(group.id, _newInviteToken);
-    final String snapshot = _encodeGroupSnapshot(group, token);
+    final String token = _joinTokenByGroup.putIfAbsent(effectiveGroup.id, _newInviteToken);
+    final String snapshot = _encodeGroupSnapshot(effectiveGroup, token);
     _collaborationTransport.sendTo(peerId, <String, dynamic>{
       'type': 'GROUP_SYNC',
-      'groupId': group.id,
+      'groupId': effectiveGroup.id,
       'token': token,
       'snapshot': snapshot,
       'assignedMemberName': existingMember.name,
@@ -250,6 +262,7 @@ class AppStateController extends ChangeNotifier {
 
     _collaboratorNames[peerId] = existingMember.name;
     _pendingJoinRequests.removeWhere((PendingJoinRequest r) => r.peerId == peerId);
+    _broadcastActiveGroupUpdate();
     _broadcastPresence();
     notifyListeners();
   }
@@ -353,10 +366,16 @@ class AppStateController extends ChangeNotifier {
       return null;
     }
 
-    final String token = _joinTokenByGroup.putIfAbsent(group.id, _newInviteToken);
-    final String snapshot = _encodeGroupSnapshot(group, token);
+    final String? hostPeerId = (_isHostingSession && _localPeerId != null) ? _localPeerId : null;
+    if (hostPeerId == null) {
+      return null;
+    }
+
     if (kIsWeb) {
-      return _buildWebInviteLink(groupId: group.id, token: token, snapshot: snapshot);
+      return _buildWebInviteLink(
+        groupId: group.id,
+        hostPeerId: hostPeerId,
+      );
     }
 
     final Uri nativeUri = Uri(
@@ -364,8 +383,7 @@ class AppStateController extends ChangeNotifier {
       host: 'join',
       queryParameters: <String, String>{
         'groupId': group.id,
-        'token': token,
-        'snapshot': snapshot,
+        'hostPeerId': hostPeerId,
       },
     );
     return nativeUri.toString();
@@ -411,88 +429,46 @@ class AppStateController extends ChangeNotifier {
 
     final Map<String, String> params = _extractJoinParams(uri);
     final String? groupId = params['groupId'];
-    final String? token = params['token'];
+    final String? hostPeerId = params['hostPeerId'];
     final String? snapshot = params['snapshot'];
-    if (groupId == null || groupId.isEmpty || token == null || token.isEmpty) {
+    final String? token = params['token'];
+
+    if (hostPeerId != null && hostPeerId.trim().isNotEmpty) {
+      _pendingInviteGroupId = (groupId != null && groupId.isNotEmpty) ? groupId : null;
+      _joinHostFromInviteLink(hostPeerId.trim());
+      return const JoinLinkResult(
+        success: true,
+        message: 'Invite opened. Connecting to host and requesting group sync...',
+      );
+    }
+
+    if (groupId == null || groupId.isEmpty || token == null || token.isEmpty || snapshot == null) {
       return const JoinLinkResult(
         success: false,
-        message: 'Invite link is missing required details.',
+        message: 'Invite link is missing host peer details. Ask host to send a fresh link.',
       );
     }
 
-    ExpenseGroup? group = _groupById(groupId);
-    if (snapshot != null && snapshot.isNotEmpty) {
-      final ExpenseGroup? synced = _tryHydrateGroupFromSnapshot(
-        snapshot,
-        groupId,
-        token,
-        upsertExisting: true,
-      );
-      if (synced != null) {
-        group = synced;
-      }
-    }
-    if (group == null) {
-      return const JoinLinkResult(
-        success: false,
-        message: 'This group was not found. Ask host to send a fresh invite link.',
-      );
-    }
-
-    final String? expectedToken = _joinTokenByGroup[group.id];
-    if (expectedToken == null || expectedToken != token) {
-      return const JoinLinkResult(
-        success: false,
-        message: 'Invite token is invalid or expired.',
-      );
-    }
-
-    final String localUserId = _localProfileUserId!;
-    final String localName = _localProfileName!;
-
-    GroupMember? existingById;
-    for (final GroupMember member in group.members) {
-      if (member.id == localUserId) {
-        existingById = member;
-        break;
-      }
-    }
-
-    if (existingById == null) {
-      for (final GroupMember member in group.members) {
-        final bool sameName = member.name.trim().toLowerCase() == localName.trim().toLowerCase();
-        if (sameName && member.id != localUserId) {
-          return const JoinLinkResult(
-            success: false,
-            message:
-                'A different member with the same name already exists in this group. Rename your local profile and try again.',
-          );
-        }
-      }
-
-      final List<GroupMember> updatedMembers = List<GroupMember>.from(group.members)
-        ..add(
-          GroupMember(
-            id: localUserId,
-            name: localName,
-            role: MemberRole.member,
-          ),
-        );
-      _replaceGroup(group.copyWith(members: updatedMembers));
-    }
-
-    _activeGroupId = group.id;
-    _identityByGroup[group.id] = localUserId;
-    _persistAppState();
-    if (!_isApplyingRemoteSync) {
-      _broadcastActiveGroupUpdate();
-    }
-    notifyListeners();
-
-    return JoinLinkResult(
-      success: true,
-      message: 'Joined "${group.name}" as $localName.',
+    final ExpenseGroup? synced = _tryHydrateGroupFromSnapshot(
+      snapshot,
+      groupId,
+      token,
+      upsertExisting: true,
     );
+    if (synced == null) {
+      return const JoinLinkResult(
+        success: false,
+        message: 'Could not restore group from this legacy link. Ask host for a fresh link.',
+      );
+    }
+
+    _activeGroupId = synced.id;
+    if (_localProfileUserId != null) {
+      _identityByGroup[synced.id] = _localProfileUserId!;
+    }
+    _persistAppState();
+    notifyListeners();
+    return JoinLinkResult(success: true, message: 'Joined "${synced.name}" from legacy snapshot link.');
   }
 
   void setActiveGroup(String groupId) {
@@ -787,15 +763,22 @@ class AppStateController extends ChangeNotifier {
 
   String _buildWebInviteLink({
     required String groupId,
-    required String token,
-    required String snapshot,
+    required String hostPeerId,
   }) {
     final Uri base = Uri.base;
     final String origin = '${base.scheme}://${base.authority}';
     final List<String> nonEmptySegments =
         base.pathSegments.where((String segment) => segment.isNotEmpty).toList();
     final String appBasePath = nonEmptySegments.isEmpty ? '/' : '/${nonEmptySegments.first}/';
-    return '$origin$appBasePath#/join?groupId=$groupId&token=$token&snapshot=$snapshot';
+    return '$origin$appBasePath#/join?groupId=$groupId&hostPeerId=$hostPeerId';
+  }
+
+  Future<void> _joinHostFromInviteLink(String hostPeerId) async {
+    final String? error = await joinCollaborationHost(hostPeerId);
+    if (error != null) {
+      _collaborationError = error;
+      notifyListeners();
+    }
   }
 
   Map<String, String> _extractJoinParams(Uri uri) {
@@ -835,6 +818,7 @@ class AppStateController extends ChangeNotifier {
         _collaborationTransport.sendTo(peerId, <String, dynamic>{
           'type': 'JOIN_REQUEST',
           'name': _localProfileName,
+          'groupId': _pendingInviteGroupId,
         });
       }
       _broadcastPresence();
@@ -863,9 +847,14 @@ class AppStateController extends ChangeNotifier {
     final String type = (message.payload['type'] ?? '').toString();
     if (type == 'JOIN_REQUEST' && _isHostingSession) {
       final String name = (message.payload['name'] ?? '').toString().trim();
+      final String? groupId = (message.payload['groupId'] ?? '').toString().trim().isEmpty
+          ? null
+          : (message.payload['groupId'] ?? '').toString().trim();
       if (name.isNotEmpty) {
         _pendingJoinRequests.removeWhere((PendingJoinRequest r) => r.peerId == message.fromPeerId);
-        _pendingJoinRequests.add(PendingJoinRequest(peerId: message.fromPeerId, requestedName: name));
+        _pendingJoinRequests.add(
+          PendingJoinRequest(peerId: message.fromPeerId, requestedName: name, groupId: groupId),
+        );
         notifyListeners();
       }
       return;
@@ -921,6 +910,7 @@ class AppStateController extends ChangeNotifier {
         }
       }
       _persistAppState();
+      _pendingInviteGroupId = null;
       notifyListeners();
     }
     _isApplyingRemoteSync = false;
