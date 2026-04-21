@@ -57,6 +57,7 @@ class AppStateController extends ChangeNotifier {
   static const String _profileNameKey = 'profile.displayName';
   static const String _profileCurrencyKey = 'profile.currencyCode';
   static const String _profileUserIdKey = 'profile.userId';
+  static const String _appStateKey = 'app.state.v1';
 
   final List<ExpenseGroup> _groups = <ExpenseGroup>[];
   final Map<String, List<ExpenseItem>> _expensesByGroup = <String, List<ExpenseItem>>{};
@@ -114,6 +115,11 @@ class AppStateController extends ChangeNotifier {
     _localProfileUserId = prefs.getString(_profileUserIdKey);
     _localProfileName = prefs.getString(_profileNameKey);
     _localCurrencyCode = prefs.getString(_profileCurrencyKey);
+    _loadPersistedAppState(prefs.getString(_appStateKey));
+
+    if (_activeGroupId != null && _groupById(_activeGroupId!) == null) {
+      _activeGroupId = _groups.isNotEmpty ? _groups.first.id : null;
+    }
 
     _isInitialized = true;
     notifyListeners();
@@ -195,6 +201,7 @@ class AppStateController extends ChangeNotifier {
     _identityByGroup[groupId] = adminId;
     _expensesByGroup[groupId] = <ExpenseItem>[];
     _joinTokenByGroup[groupId] = _newInviteToken();
+    _persistAppState();
     notifyListeners();
     return null;
   }
@@ -327,6 +334,7 @@ class AppStateController extends ChangeNotifier {
 
     _activeGroupId = group.id;
     _identityByGroup[group.id] = localUserId;
+    _persistAppState();
     notifyListeners();
 
     return JoinLinkResult(
@@ -350,6 +358,7 @@ class AppStateController extends ChangeNotifier {
       }
       _identityByGroup[groupId] = fallbackMemberId;
     }
+    _persistAppState();
     notifyListeners();
   }
 
@@ -365,6 +374,7 @@ class AppStateController extends ChangeNotifier {
     if (_activeGroupId == groupId && _groups.isNotEmpty) {
       _activeGroupId = _groups.first.id;
     }
+    _persistAppState();
     notifyListeners();
     return null;
   }
@@ -412,6 +422,7 @@ class AppStateController extends ChangeNotifier {
       _identityByGroup[group.id] = updated.first.id;
     }
 
+    _persistAppState();
     notifyListeners();
     return null;
   }
@@ -425,6 +436,7 @@ class AppStateController extends ChangeNotifier {
       return;
     }
     _identityByGroup[group.id] = memberId;
+    _persistAppState();
     notifyListeners();
   }
 
@@ -462,6 +474,7 @@ class AppStateController extends ChangeNotifier {
     final List<ExpenseItem> existing = List<ExpenseItem>.from(_expensesByGroup[group.id] ?? const <ExpenseItem>[])
       ..insert(0, expense);
     _expensesByGroup[group.id] = existing;
+    _persistAppState();
     notifyListeners();
     return null;
   }
@@ -570,6 +583,7 @@ class AppStateController extends ChangeNotifier {
       _groups.add(hydrated);
       _expensesByGroup[groupId] = <ExpenseItem>[];
       _joinTokenByGroup[groupId] = token;
+      _persistAppState();
       return hydrated;
     } catch (_) {
       return null;
@@ -602,6 +616,238 @@ class AppStateController extends ChangeNotifier {
 
     final String queryPart = fragment.substring(questionIndex + 1);
     return Uri(query: queryPart).queryParameters;
+  }
+
+  void _persistAppState() {
+    SharedPreferences.getInstance().then((SharedPreferences prefs) {
+      final Map<String, dynamic> payload = <String, dynamic>{
+        'activeGroupId': _activeGroupId,
+        'groups': _groups.map(_groupToJson).toList(),
+        'identityByGroup': _identityByGroup,
+        'joinTokenByGroup': _joinTokenByGroup,
+        'expensesByGroup': _expensesByGroup.map(
+          (String key, List<ExpenseItem> value) => MapEntry<String, dynamic>(
+            key,
+            value.map(_expenseToJson).toList(),
+          ),
+        ),
+      };
+      prefs.setString(_appStateKey, jsonEncode(payload));
+    });
+  }
+
+  void _loadPersistedAppState(String? raw) {
+    if (raw == null || raw.isEmpty) {
+      return;
+    }
+
+    try {
+      final Map<String, dynamic> payload = jsonDecode(raw) as Map<String, dynamic>;
+      _activeGroupId = payload['activeGroupId'] as String?;
+
+      _groups.clear();
+      final List<dynamic> groupList = payload['groups'] as List<dynamic>? ?? const <dynamic>[];
+      for (final dynamic item in groupList) {
+        if (item is Map<String, dynamic>) {
+          final ExpenseGroup? group = _groupFromJson(item);
+          if (group != null) {
+            _groups.add(group);
+          }
+        }
+      }
+
+      _identityByGroup
+        ..clear()
+        ..addAll((payload['identityByGroup'] as Map<String, dynamic>? ?? const <String, dynamic>{})
+            .map((String key, dynamic value) => MapEntry<String, String>(key, value.toString())));
+
+      _joinTokenByGroup
+        ..clear()
+        ..addAll((payload['joinTokenByGroup'] as Map<String, dynamic>? ?? const <String, dynamic>{})
+            .map((String key, dynamic value) => MapEntry<String, String>(key, value.toString())));
+
+      _expensesByGroup.clear();
+      final Map<String, dynamic> expensesMap =
+          payload['expensesByGroup'] as Map<String, dynamic>? ?? const <String, dynamic>{};
+      expensesMap.forEach((String groupId, dynamic rawItems) {
+        final List<ExpenseItem> items = <ExpenseItem>[];
+        if (rawItems is List<dynamic>) {
+          for (final dynamic rawItem in rawItems) {
+            if (rawItem is Map<String, dynamic>) {
+              final ExpenseItem? item = _expenseFromJson(rawItem);
+              if (item != null) {
+                items.add(item);
+              }
+            }
+          }
+        }
+        _expensesByGroup[groupId] = items;
+      });
+    } catch (_) {
+      _groups.clear();
+      _identityByGroup.clear();
+      _joinTokenByGroup.clear();
+      _expensesByGroup.clear();
+      _activeGroupId = null;
+    }
+  }
+
+  Map<String, dynamic> _groupToJson(ExpenseGroup group) {
+    return <String, dynamic>{
+      'id': group.id,
+      'name': group.name,
+      'members': group.members
+          .map(
+            (GroupMember member) => <String, dynamic>{
+              'id': member.id,
+              'name': member.name,
+              'role': member.role.name,
+            },
+          )
+          .toList(),
+    };
+  }
+
+  ExpenseGroup? _groupFromJson(Map<String, dynamic> raw) {
+    final String? id = raw['id'] as String?;
+    final String? name = raw['name'] as String?;
+    final List<dynamic>? memberList = raw['members'] as List<dynamic>?;
+    if (id == null || name == null || memberList == null) {
+      return null;
+    }
+
+    final List<GroupMember> members = <GroupMember>[];
+    for (final dynamic memberRaw in memberList) {
+      if (memberRaw is! Map<String, dynamic>) {
+        continue;
+      }
+      final String? memberId = memberRaw['id'] as String?;
+      final String? memberName = memberRaw['name'] as String?;
+      final String? roleString = memberRaw['role'] as String?;
+      if (memberId == null || memberName == null || roleString == null) {
+        continue;
+      }
+      members.add(
+        GroupMember(
+          id: memberId,
+          name: memberName,
+          role: roleString == MemberRole.admin.name ? MemberRole.admin : MemberRole.member,
+        ),
+      );
+    }
+    if (members.isEmpty) {
+      return null;
+    }
+
+    return ExpenseGroup(id: id, name: name, members: members);
+  }
+
+  Map<String, dynamic> _expenseToJson(ExpenseItem item) {
+    return <String, dynamic>{
+      'id': item.id,
+      'groupId': item.groupId,
+      'title': item.title,
+      'totalAmount': item.totalAmount,
+      'date': item.date.toIso8601String(),
+      'createdBy': item.createdBy,
+      'splitMethod': item.splitMethod.name,
+      'payers': item.payers
+          .map(
+            (ExpensePayer payer) => <String, dynamic>{
+              'memberId': payer.memberId,
+              'amount': payer.amount,
+            },
+          )
+          .toList(),
+      'participants': item.participants,
+      'splitShares': item.splitShares
+          .map(
+            (ExpenseParticipantShare share) => <String, dynamic>{
+              'memberId': share.memberId,
+              'value': share.value,
+            },
+          )
+          .toList(),
+    };
+  }
+
+  ExpenseItem? _expenseFromJson(Map<String, dynamic> raw) {
+    final String? id = raw['id'] as String?;
+    final String? groupId = raw['groupId'] as String?;
+    final String? title = raw['title'] as String?;
+    final num? totalAmount = raw['totalAmount'] as num?;
+    final String? dateString = raw['date'] as String?;
+    final String? createdBy = raw['createdBy'] as String?;
+    final String? splitMethodString = raw['splitMethod'] as String?;
+    final List<dynamic>? rawPayers = raw['payers'] as List<dynamic>?;
+    final List<dynamic>? rawParticipants = raw['participants'] as List<dynamic>?;
+    final List<dynamic>? rawShares = raw['splitShares'] as List<dynamic>?;
+
+    if (id == null ||
+        groupId == null ||
+        title == null ||
+        totalAmount == null ||
+        dateString == null ||
+        createdBy == null ||
+        splitMethodString == null ||
+        rawPayers == null ||
+        rawParticipants == null ||
+        rawShares == null) {
+      return null;
+    }
+
+    final DateTime? date = DateTime.tryParse(dateString);
+    if (date == null) {
+      return null;
+    }
+
+    SplitMethod splitMethod = SplitMethod.equal;
+    if (splitMethodString == SplitMethod.fixedAmount.name) {
+      splitMethod = SplitMethod.fixedAmount;
+    } else if (splitMethodString == SplitMethod.percentage.name) {
+      splitMethod = SplitMethod.percentage;
+    }
+
+    final List<ExpensePayer> payers = <ExpensePayer>[];
+    for (final dynamic rawPayer in rawPayers) {
+      if (rawPayer is! Map<String, dynamic>) {
+        continue;
+      }
+      final String? memberId = rawPayer['memberId'] as String?;
+      final num? amount = rawPayer['amount'] as num?;
+      if (memberId == null || amount == null) {
+        continue;
+      }
+      payers.add(ExpensePayer(memberId: memberId, amount: amount.toDouble()));
+    }
+
+    final List<String> participants = rawParticipants.map((dynamic e) => e.toString()).toList();
+
+    final List<ExpenseParticipantShare> shares = <ExpenseParticipantShare>[];
+    for (final dynamic rawShare in rawShares) {
+      if (rawShare is! Map<String, dynamic>) {
+        continue;
+      }
+      final String? memberId = rawShare['memberId'] as String?;
+      final num? value = rawShare['value'] as num?;
+      if (memberId == null || value == null) {
+        continue;
+      }
+      shares.add(ExpenseParticipantShare(memberId: memberId, value: value.toDouble()));
+    }
+
+    return ExpenseItem(
+      id: id,
+      groupId: groupId,
+      title: title,
+      totalAmount: totalAmount.toDouble(),
+      payers: payers,
+      participants: participants,
+      splitMethod: splitMethod,
+      splitShares: shares,
+      date: date,
+      createdBy: createdBy,
+    );
   }
 
   String _newId(String prefix) {

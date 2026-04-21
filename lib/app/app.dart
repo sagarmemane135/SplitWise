@@ -33,15 +33,26 @@ class AppRootGate extends StatefulWidget {
 
 class _AppRootGateState extends State<AppRootGate> {
   bool _handledLaunchLink = false;
+  String? _pendingLaunchJoinUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    if (kIsWeb) {
+      final String launchUrl = Uri.base.toString();
+      if (launchUrl.contains('groupId=') && launchUrl.contains('token=')) {
+        _pendingLaunchJoinUrl = launchUrl;
+      }
+    }
+  }
 
   void _tryHandleWebLaunchJoinLink(AppStateController appState) {
     if (!kIsWeb || _handledLaunchLink || !appState.hasLocalProfile) {
       return;
     }
 
-    final String currentUrl = Uri.base.toString();
-    if (!currentUrl.contains('groupId=') || !currentUrl.contains('token=')) {
-      _handledLaunchLink = true;
+    final String? launchUrl = _pendingLaunchJoinUrl;
+    if (launchUrl == null) {
       return;
     }
 
@@ -49,8 +60,9 @@ class _AppRootGateState extends State<AppRootGate> {
       if (!mounted || _handledLaunchLink) {
         return;
       }
-      final JoinLinkResult result = appState.joinGroupViaLink(currentUrl);
+      final JoinLinkResult result = appState.joinGroupViaLink(launchUrl);
       _handledLaunchLink = true;
+      _pendingLaunchJoinUrl = null;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(result.message)),
       );
