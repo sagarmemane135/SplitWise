@@ -1,5 +1,6 @@
 // ignore_for_file: deprecated_member_use, avoid_web_libraries_in_flutter
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:js' as js;
 
@@ -8,6 +9,7 @@ import 'collaboration_transport.dart';
 class _PeerJsCollaborationTransport extends CollaborationTransport {
   js.JsObject? _peer;
   final Map<String, js.JsObject> _connections = <String, js.JsObject>{};
+  Timer? _reconnectTimer;
 
   @override
   Future<String> initPeer() async {
@@ -68,9 +70,25 @@ class _PeerJsCollaborationTransport extends CollaborationTransport {
     _peer!.callMethod(
       'on',
       <dynamic>[
+        'disconnected',
+        () {
+          onError?.call('Disconnected from PeerJS server. Reconnecting...');
+        },
+      ],
+    );
+
+    _peer!.callMethod(
+      'on',
+      <dynamic>[
         'error',
         (dynamic error) {
-          onError?.call(error.toString());
+          final String errorText = error.toString();
+          final String? errorType = _readJsStringProperty(error, 'type');
+          if (errorType != null &&
+              <String>{'server-error', 'socket-error', 'webrtc'}.contains(errorType)) {
+            _schedulePeerReinitialize();
+          }
+          onError?.call(errorType == null ? errorText : '$errorType: $errorText');
         },
       ],
     );
@@ -102,9 +120,67 @@ class _PeerJsCollaborationTransport extends CollaborationTransport {
         js.JsObject.jsify(<String, dynamic>{'reliable': true, 'serialization': 'json'}),
       ],
     );
-    if (connection is js.JsObject) {
-      _attachConnection(connection);
+
+    if (connection is! js.JsObject) {
+      throw StateError('PeerJS did not return a valid connection object.');
     }
+
+    final Completer<void> completer = Completer<void>();
+    late final Timer timeout;
+    bool settled = false;
+
+    void finishSuccess() {
+      if (!settled) {
+        settled = true;
+        timeout.cancel();
+        if (!completer.isCompleted) {
+          completer.complete();
+        }
+      }
+    }
+
+    void finishError(String message) {
+      if (!settled) {
+        settled = true;
+        timeout.cancel();
+        if (!completer.isCompleted) {
+          completer.completeError(StateError(message));
+        }
+      }
+    }
+
+    timeout = Timer(const Duration(seconds: 15), () {
+      finishError('Connection timeout. Ensure host is online and try again.');
+      try {
+        connection.callMethod('close', <dynamic>[]);
+      } catch (_) {}
+    });
+
+    connection.callMethod(
+      'on',
+      <dynamic>[
+        'open',
+        () {
+          finishSuccess();
+        },
+      ],
+    );
+
+    connection.callMethod(
+      'on',
+      <dynamic>[
+        'error',
+        (dynamic err) {
+          final String? type = _readJsStringProperty(err, 'type');
+          finishError(type == 'peer-unavailable'
+              ? 'Host peer is unavailable. Check invite link and host status.'
+              : 'Connection failed. Check both devices network and retry.');
+        },
+      ],
+    );
+
+    _attachConnection(connection);
+    return completer.future;
   }
 
   void _attachConnection(js.JsObject connection) {
@@ -192,6 +268,9 @@ class _PeerJsCollaborationTransport extends CollaborationTransport {
 
   @override
   void dispose() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+
     for (final js.JsObject connection in _connections.values) {
       try {
         connection.callMethod('close', <dynamic>[]);
@@ -205,6 +284,37 @@ class _PeerJsCollaborationTransport extends CollaborationTransport {
       } catch (_) {}
       _peer = null;
     }
+  }
+
+  void _schedulePeerReinitialize() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(const Duration(seconds: 3), () async {
+      try {
+        final String? existingId = _peer == null ? null : _peer!['id']?.toString();
+        if (_peer != null) {
+          _peer!.callMethod('destroy', <dynamic>[]);
+          _peer = null;
+        }
+        await initPeer();
+        if (existingId != null && existingId.isNotEmpty && _peer != null) {
+          onError?.call('PeerJS reinitialized (previous id: $existingId).');
+        }
+      } catch (e) {
+        onError?.call('PeerJS reinitialize failed: $e');
+      }
+    });
+  }
+
+  String? _readJsStringProperty(dynamic obj, String key) {
+    try {
+      if (obj is js.JsObject) {
+        final dynamic value = obj[key];
+        if (value != null) {
+          return value.toString();
+        }
+      }
+    } catch (_) {}
+    return null;
   }
 }
 

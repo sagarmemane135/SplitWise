@@ -104,24 +104,14 @@ class ManagePage extends StatelessWidget {
         SectionCard(
           title: 'Collaboration',
           subtitle:
-              'Status: ${appState.collaborationReady ? 'Ready' : 'Not started'} | Host Peer: ${appState.localPeerId ?? '-'} | Connected: ${appState.connectedPeerCount}',
+              'Status: ${appState.collaborationReady ? 'Ready' : 'Initializing'} | Host Peer: ${appState.localPeerId ?? '-'} | Connected: ${appState.connectedPeerCount}',
           icon: Icons.wifi_tethering,
         ),
         const Padding(
           padding: EdgeInsets.only(top: 8, bottom: 8),
-          child: Text('Flow: Host clicks Start hosting -> Share invite link. Member opens invite link. Host approves request.'),
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: <Widget>[
-            FilledButton.icon(
-              onPressed: () => _startHostSession(context, appState),
-              icon: const Icon(Icons.hub_outlined),
-              label: const Text('Start hosting'),
-            ),
-          ],
+          child: Text(
+            'Flow: Sharing is automatic. Share the invite link and anyone with that link can join directly.',
+          ),
         ),
         if (appState.collaborationError != null)
           Padding(
@@ -131,47 +121,12 @@ class ManagePage extends StatelessWidget {
               style: const TextStyle(color: Colors.red),
             ),
           ),
-        if (appState.pendingJoinRequests.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text('Pending join requests', style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 8),
-                ...appState.pendingJoinRequests.map(
-                  (PendingJoinRequest request) => Card(
-                    child: ListTile(
-                      title: Text(request.requestedName),
-                      subtitle: Text('Peer: ${request.peerId}'),
-                      trailing: Wrap(
-                        spacing: 6,
-                        children: <Widget>[
-                          TextButton(
-                            onPressed: () => appState.rejectJoinRequest(
-                              request.peerId,
-                              'Host rejected join request.',
-                            ),
-                            child: const Text('Reject'),
-                          ),
-                          FilledButton(
-                            onPressed: () => appState.approveJoinRequest(request.peerId),
-                            child: const Text('Approve'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
         Wrap(
           spacing: 10,
           runSpacing: 10,
           children: <Widget>[
             FilledButton.tonalIcon(
-              onPressed: (activeGroup == null || !appState.isHostingSession)
+              onPressed: (activeGroup == null || !appState.isHostingSession || appState.localPeerId == null)
                   ? null
                   : () => _showInviteLinkDialog(context, appState),
               icon: const Icon(Icons.link),
@@ -184,27 +139,12 @@ class ManagePage extends StatelessWidget {
             ),
           ],
         ),
-        if (!appState.isHostingSession)
-          const Padding(
-            padding: EdgeInsets.only(top: 8),
-            child: Text('Tip: Start hosting first to generate invite link with live peer session.'),
-          ),
         const SectionCard(
           title: 'Export & Reset',
           subtitle: 'PDF export and full reset action will be connected in next iteration.',
           icon: Icons.picture_as_pdf,
         ),
       ],
-    );
-  }
-
-  Future<void> _startHostSession(BuildContext context, AppStateController appState) async {
-    final String? error = await appState.startCollaborationHost();
-    if (!context.mounted) {
-      return;
-    }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(error ?? 'Host session is ready. Share your Peer ID.')),
     );
   }
 

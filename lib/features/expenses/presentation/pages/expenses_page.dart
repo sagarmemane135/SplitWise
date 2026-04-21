@@ -14,6 +14,7 @@ class ExpensesPage extends StatelessWidget {
     final AppStateController appState = AppStateScope.of(context);
     final ExpenseGroup? group = appState.activeGroup;
     final List<ExpenseItem> expenses = appState.activeGroupExpenses;
+    final List<GroupComment> comments = appState.activeGroupComments;
 
     if (group == null) {
       return const Center(child: Text('Create a group from Manage to begin.'));
@@ -48,11 +49,28 @@ class ExpensesPage extends StatelessWidget {
               icon: Icons.receipt_long,
             );
           }),
-        SectionCard(
+        const SectionCard(
           title: 'Comments Feed',
-          subtitle: 'Expense comments and notes from collaborators appear here.',
+          subtitle: 'Notes from collaborators sync across all peers.',
           icon: Icons.comment,
         ),
+        _CommentComposer(appState: appState),
+        const SizedBox(height: 8),
+        if (comments.isEmpty)
+          const SectionCard(
+            title: 'No comments yet',
+            subtitle: 'Post a quick note to confirm live message sync.',
+            icon: Icons.forum_outlined,
+          )
+        else
+          ...comments.take(12).map((GroupComment comment) {
+            final GroupMember? author = _memberById(group.members, comment.authorMemberId);
+            return SectionCard(
+              title: author?.name ?? 'Unknown',
+              subtitle: comment.message,
+              icon: Icons.chat_bubble_outline,
+            );
+          }),
       ],
     );
   }
@@ -105,6 +123,54 @@ class _HeroBanner extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _CommentComposer extends StatefulWidget {
+  const _CommentComposer({required this.appState});
+
+  final AppStateController appState;
+
+  @override
+  State<_CommentComposer> createState() => _CommentComposerState();
+}
+
+class _CommentComposerState extends State<_CommentComposer> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: TextField(
+            controller: _controller,
+            decoration: const InputDecoration(
+              hintText: 'Write a comment for your group',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        FilledButton(
+          onPressed: () {
+            final String? error = widget.appState.addComment(_controller.text);
+            if (error == null) {
+              _controller.clear();
+              return;
+            }
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+          },
+          child: const Text('Post'),
+        ),
+      ],
     );
   }
 }

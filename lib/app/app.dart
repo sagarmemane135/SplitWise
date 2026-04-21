@@ -13,13 +13,26 @@ import 'theme/app_theme.dart';
 class SplitwiseApp extends StatelessWidget {
   const SplitwiseApp({super.key});
 
+  static const AppStateScope _root = AppStateScope(child: AppRootGate());
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Splitwise',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
-      home: const AppStateScope(child: AppRootGate()),
+      onGenerateRoute: (RouteSettings settings) {
+        if (settings.name != null && settings.name!.startsWith('/join')) {
+          return MaterialPageRoute<void>(
+            settings: settings,
+            builder: (_) => _root,
+          );
+        }
+        return MaterialPageRoute<void>(
+          settings: const RouteSettings(name: '/'),
+          builder: (_) => _root,
+        );
+      },
     );
   }
 }
@@ -40,7 +53,8 @@ class _AppRootGateState extends State<AppRootGate> {
     super.initState();
     if (kIsWeb) {
       final String launchUrl = Uri.base.toString();
-      if (launchUrl.contains('groupId=') && launchUrl.contains('token=')) {
+      if (launchUrl.contains('groupId=') &&
+          (launchUrl.contains('hostPeerId=') || launchUrl.contains('token='))) {
         _pendingLaunchJoinUrl = launchUrl;
       }
     }
