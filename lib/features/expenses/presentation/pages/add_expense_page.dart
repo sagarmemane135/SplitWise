@@ -72,9 +72,14 @@ class _AddExpensePageState extends State<AddExpensePage> {
         }
       }
     } else {
-      final String meId = appState.localProfileUserId ?? group.members.first.id;
-      _payerMemberIds.add(meId);
-      _payerAmountControllers[meId] = TextEditingController();
+      // Use activeIdentity (correctly mapped group member) rather than the raw device-level userId
+      // which may not match any group member ID on a guest device.
+      final String meId = appState.activeIdentity?.id ?? appState.localProfileUserId ?? group.members.first.id;
+      // Validate the resolved ID actually exists in the group
+      final bool idValid = group.members.any((GroupMember m) => m.id == meId);
+      final String resolvedId = idValid ? meId : group.members.first.id;
+      _payerMemberIds.add(resolvedId);
+      _payerAmountControllers[resolvedId] = TextEditingController();
       for (final GroupMember m in group.members) {
         _selectedParticipantIds.add(m.id);
       }

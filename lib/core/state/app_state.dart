@@ -935,8 +935,33 @@ class AppStateController extends ChangeNotifier {
       }
 
       if (existing == null || upsertExisting) {
-        _expensesByGroup[groupId] = expenses;
-        _commentsByGroup[groupId] = comments;
+        // Merge expenses: keep local ones + add any new ones from the remote snapshot
+        // This prevents the host's richer list from being overwritten by a stale guest snapshot
+        final List<ExpenseItem> currentLocal = List<ExpenseItem>.from(_expensesByGroup[groupId] ?? const <ExpenseItem>[]);
+        final Set<String> localIds = currentLocal.map((ExpenseItem e) => e.id).toSet();
+        final List<ExpenseItem> incomingNew = expenses.where((ExpenseItem e) => !localIds.contains(e.id)).toList();
+        // Also update existing expenses that may have been edited remotely
+        final Map<String, ExpenseItem> incomingById = <String, ExpenseItem>{
+          for (final ExpenseItem e in expenses) e.id: e,
+        };
+        final List<ExpenseItem> merged = currentLocal.map((ExpenseItem local) {
+          final ExpenseItem? remote = incomingById[local.id];
+          // Prefer whichever was more recently dated
+          if (remote != null && remote.date.isAfter(local.date)) return remote;
+          return local;
+        }).toList();
+        merged.addAll(incomingNew);
+        // Sort descending by date
+        merged.sort((ExpenseItem a, ExpenseItem b) => b.date.compareTo(a.date));
+        _expensesByGroup[groupId] = merged;
+
+        // Merge comments similarly
+        final List<GroupComment> currentComments = List<GroupComment>.from(_commentsByGroup[groupId] ?? const <GroupComment>[]);
+        final Set<String> localCommentIds = currentComments.map((GroupComment c) => c.id).toSet();
+        final List<GroupComment> newComments = comments.where((GroupComment c) => !localCommentIds.contains(c.id)).toList();
+        currentComments.addAll(newComments);
+        currentComments.sort((GroupComment a, GroupComment b) => b.createdAt.compareTo(a.createdAt));
+        _commentsByGroup[groupId] = currentComments;
 
         final List<ActivityLog> activities = <ActivityLog>[];
         for (final dynamic raw in rawActivities) {
@@ -1095,14 +1120,19 @@ class AppStateController extends ChangeNotifier {
       );
       if (group != null) {
         _activeGroupId = group.id;
-        if (assignedName.isNotEmpty) {
+
+        // Re-establish identity by assigned name (for initial GROUP_SYNC)
+        // or fallback to the local profile name (for subsequent GROUP_UPDATE refreshes)
+        final String nameToMatch = assignedName.isNotEmpty ? assignedName : (_localProfileName ?? '');
+        if (nameToMatch.isNotEmpty && _identityByGroup[group.id] == null) {
           for (final GroupMember member in group.members) {
-            if (member.name.trim().toLowerCase() == assignedName.trim().toLowerCase()) {
+            if (member.name.trim().toLowerCase() == nameToMatch.trim().toLowerCase()) {
               _identityByGroup[group.id] = member.id;
               break;
             }
           }
         }
+
         _persistAppState();
         _pendingInviteGroupId = null;
         notifyListeners();
