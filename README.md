@@ -72,7 +72,7 @@ flutter build apk --release
 
 The app is deployed to GitHub Pages via GitHub Actions on every push to `main`.
 
-➡️ [Open SplitEase Web App](https://sagarmemane135.github.io/SplitWise/)
+➡️ [Open SplitEase Web App](https://sagarmemane135.github.io/SplitEase/)
 
 > **Note:** After the GitHub Action runs for the first time, navigate to  
 > **Repository Settings → Pages → Source** and set the branch to `gh-pages`.

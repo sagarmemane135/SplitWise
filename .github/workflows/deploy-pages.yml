@@ -30,7 +30,7 @@ jobs:
         run: flutter pub get
 
       - name: Build web
-        run: flutter build web --release --base-href /SplitWise/
+        run: flutter build web --release --base-href /SplitEase/
 
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v3
