@@ -28,9 +28,7 @@ class DebtsPage extends StatelessWidget {
     final Map<String, double> balances = appState.activeGroupBalances;
     final List<Settlement> settlements = _calculateSettlements(balances);
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Suggested Debts')),
-      body: ListView(
+    return ListView(
         padding: const EdgeInsets.all(16),
         children: <Widget>[
           const SectionCard(
@@ -53,7 +51,6 @@ class DebtsPage extends StatelessWidget {
               return _DebtCard(fromMem: fromMem, toMem: toMem, amount: s.amount);
             }),
         ],
-      ),
     );
   }
 

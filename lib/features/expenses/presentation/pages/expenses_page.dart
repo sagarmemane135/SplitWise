@@ -17,14 +17,10 @@ class ExpensesPage extends StatelessWidget {
     final List<ExpenseItem> expenses = appState.activeGroupExpenses;
 
     if (group == null) {
-      return const Scaffold(
-        body: Center(child: Text('Create a group from Manage to begin.')),
-      );
+      return const Center(child: Text('Create a group from Manage to begin.'));
     }
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Expenses')),
-      body: ListView(
+    return ListView(
       padding: const EdgeInsets.all(16),
       children: <Widget>[
         const _HeroBanner(
@@ -67,7 +63,6 @@ class ExpensesPage extends StatelessWidget {
             );
           }),
       ],
-    ),
     );
   }
 }

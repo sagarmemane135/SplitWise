@@ -29,9 +29,7 @@ class SharesPage extends StatelessWidget {
         .toList()
       ..sort((MapEntry<String, double> a, MapEntry<String, double> b) => a.value.compareTo(b.value));
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Member Balances')),
-      body: ListView(
+    return ListView(
         padding: const EdgeInsets.all(16),
         children: <Widget>[
           const SectionCard(
@@ -72,7 +70,6 @@ class SharesPage extends StatelessWidget {
               ),
           ],
         ],
-      ),
     );
   }
 

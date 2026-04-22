@@ -2,12 +2,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../core/state/app_state.dart';
-import '../features/debts/presentation/pages/debts_page.dart';
-import '../features/expenses/presentation/pages/add_expense_page.dart';
-import '../features/expenses/presentation/pages/expenses_page.dart';
+import '../features/groups/presentation/pages/groups_page.dart';
 import '../features/manage/presentation/pages/manage_page.dart';
 import '../features/onboarding/presentation/pages/profile_setup_page.dart';
-import '../features/shares/presentation/pages/shares_page.dart';
 import 'theme/app_theme.dart';
 
 class SplitwiseApp extends StatelessWidget {
@@ -119,78 +116,50 @@ class SplitwiseShellPage extends StatefulWidget {
 
 class _SplitwiseShellPageState extends State<SplitwiseShellPage> {
   int _currentIndex = 0;
-  late final List<GlobalKey<NavigatorState>> _navigatorKeys = List.generate(5, (_) => GlobalKey<NavigatorState>());
+  late final List<GlobalKey<NavigatorState>> _navigatorKeys = List.generate(2, (_) => GlobalKey<NavigatorState>());
 
   static const List<String> _titles = <String>[
-    'Expenses',
-    'Shares',
-    'Add',
-    'Debts',
-    'Manage',
+    'Groups',
+    'Account',
   ];
 
   static const List<Widget> _pages = <Widget>[
-    ExpensesPage(),
-    SharesPage(),
-    AddExpensePage(),
-    DebtsPage(),
+    GroupsPage(),
     ManagePage(),
   ];
 
   @override
   Widget build(BuildContext context) {
-    final AppStateController appState = AppStateScope.of(context);
-    final bool hasGroup = appState.activeGroup != null;
-
-    final List<String> activeTitles = hasGroup ? _titles : const <String>['Manage'];
-    final List<Widget> activePages = hasGroup ? _pages : const <Widget>[ManagePage()];
-    final List<NavigationDestination> activeDestinations = hasGroup
-        ? const <NavigationDestination>[
-            NavigationDestination(icon: Icon(Icons.receipt_long), label: 'Expenses'),
-            NavigationDestination(icon: Icon(Icons.pie_chart), label: 'Shares'),
-            NavigationDestination(icon: Icon(Icons.add_circle_outline), label: 'Add'),
-            NavigationDestination(icon: Icon(Icons.swap_horiz), label: 'Debts'),
-            NavigationDestination(icon: Icon(Icons.settings), label: 'Manage'),
-          ]
-        : const <NavigationDestination>[
-            NavigationDestination(icon: Icon(Icons.settings), label: 'Manage'),
-          ];
-
-    int displayIndex = _currentIndex;
-    if (displayIndex >= activePages.length) {
-      displayIndex = 0;
-    }
-
     return Scaffold(
       resizeToAvoidBottomInset: false,
       body: IndexedStack(
-        index: displayIndex,
+        index: _currentIndex,
         children: _navigatorKeys.asMap().entries.map((entry) {
           final int i = entry.key;
           return Navigator(
             key: entry.value,
             onGenerateRoute: (RouteSettings settings) {
               return MaterialPageRoute<void>(
-                builder: (_) => activePages[i],
+                builder: (_) => _pages[i],
               );
             },
           );
         }).toList(),
       ),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: displayIndex,
-        destinations: activeDestinations,
+        selectedIndex: _currentIndex,
+        labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
+        destinations: const <NavigationDestination>[
+          NavigationDestination(icon: Icon(Icons.group_outlined), selectedIcon: Icon(Icons.group), label: 'Groups'),
+          NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Account'),
+        ],
         onDestinationSelected: (int index) {
           setState(() {
-            if (!hasGroup) {
-              _currentIndex = 0;
-            } else {
-              if (_currentIndex == index) {
-                // If tapping the same tab, pop to root of that tab's navigator
-                _navigatorKeys[index].currentState?.popUntil((Route<dynamic> route) => route.isFirst);
-              }
-              _currentIndex = index;
+            if (_currentIndex == index) {
+              // If tapping the same tab, pop to root of that tab's navigator
+              _navigatorKeys[index].currentState?.popUntil((Route<dynamic> route) => route.isFirst);
             }
+            _currentIndex = index;
           });
         },
       ),
