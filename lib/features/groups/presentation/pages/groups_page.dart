@@ -11,10 +11,11 @@ class GroupsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final AppStateController appState = AppStateScope.of(context);
     final List<ExpenseGroup> groups = appState.groups;
+    final double totalBalance = appState.userTotalBalance;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Groups'),
+        title: const Text('Splitwise'),
         actions: <Widget>[
           IconButton(
             icon: const Icon(Icons.search),
@@ -27,70 +28,93 @@ class GroupsPage extends StatelessWidget {
           ),
         ],
       ),
-      body: groups.isEmpty
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Icon(Icons.flight_takeoff, size: 64, color: Theme.of(context).colorScheme.primary),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Welcome to Splitwise\nStart by creating a new group.',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.titleMedium,
+      body: Column(
+        children: <Widget>[
+          _DashboardHeader(totalBalance: totalBalance),
+          Expanded(
+            child: groups.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(32),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Icon(Icons.flight_takeoff, size: 64, color: Theme.of(context).colorScheme.primary),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Welcome to Splitwise\nStart by creating a new group.',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ],
+                      ),
                     ),
-                  ],
-                ),
-              ),
-            )
-          : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: groups.length,
-              itemBuilder: (BuildContext context, int index) {
-                final ExpenseGroup group = groups[index];
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: InkWell(
-                    onTap: () {
-                      appState.setActiveGroup(group.id);
-                      Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => GroupDetailsPage(group: group),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: groups.length,
+                    itemBuilder: (BuildContext context, int index) {
+                      final ExpenseGroup group = groups[index];
+                      final double myBalance = appState.getUserBalanceForGroup(group.id);
+                      
+                      Color balanceColor = Colors.grey;
+                      String balanceText = 'Settled up';
+                      
+                      if (myBalance > 0.01) {
+                        balanceColor = Theme.of(context).colorScheme.primary; // Teal
+                        balanceText = 'you are owed ${appState.localCurrencyCode} ${myBalance.toStringAsFixed(2)}';
+                      } else if (myBalance < -0.01) {
+                        balanceColor = Theme.of(context).colorScheme.error; // Red
+                        balanceText = 'you owe ${appState.localCurrencyCode} ${myBalance.abs().toStringAsFixed(2)}';
+                      }
+
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: InkWell(
+                          onTap: () {
+                            appState.setActiveGroup(group.id);
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => GroupDetailsPage(group: group),
+                              ),
+                            );
+                          },
+                          borderRadius: BorderRadius.circular(16),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.surface,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: Theme.of(context).colorScheme.surfaceVariant),
+                            ),
+                            child: ListTile(
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              leading: Container(
+                                width: 48,
+                                height: 48,
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context).colorScheme.surfaceVariant,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Icon(Icons.group, color: Theme.of(context).colorScheme.primary),
+                              ),
+                              title: Text(group.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                              subtitle: Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  balanceText,
+                                  style: TextStyle(color: balanceColor, fontWeight: myBalance.abs() > 0.01 ? FontWeight.w600 : FontWeight.normal),
+                                ),
+                              ),
+                              trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+                            ),
+                          ),
                         ),
                       );
                     },
-                    borderRadius: BorderRadius.circular(16),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surface,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Theme.of(context).colorScheme.surfaceVariant),
-                      ),
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        leading: Container(
-                          width: 48,
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.primaryContainer,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Icon(Icons.group, color: Theme.of(context).colorScheme.primary),
-                        ),
-                        title: Text(group.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                        subtitle: Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text('${group.members.length} members'),
-                        ),
-                        trailing: const Icon(Icons.chevron_right),
-                      ),
-                    ),
                   ),
-                );
-              },
-            ),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showCreateGroupDialog(context, appState),
         icon: const Icon(Icons.group_add),
@@ -205,6 +229,44 @@ class GroupsPage extends StatelessWidget {
           },
         );
       },
+    );
+  }
+}
+
+class _DashboardHeader extends StatelessWidget {
+  const _DashboardHeader({required this.totalBalance});
+  final double totalBalance;
+
+  @override
+  Widget build(BuildContext context) {
+    Color balanceColor = Theme.of(context).colorScheme.onSurface;
+    String headerText = 'Total balance';
+    String balanceString = '0.00';
+
+    if (totalBalance > 0.01) {
+      balanceColor = Theme.of(context).colorScheme.primary;
+      headerText = 'You are owed';
+      balanceString = totalBalance.toStringAsFixed(2);
+    } else if (totalBalance < -0.01) {
+      balanceColor = Theme.of(context).colorScheme.error;
+      headerText = 'You owe';
+      balanceString = totalBalance.abs().toStringAsFixed(2);
+    }
+
+    return Container(
+      width: double.infinity,
+      color: Colors.white,
+      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+      child: Column(
+        children: <Widget>[
+          Text(headerText, style: const TextStyle(fontSize: 16, color: Colors.grey)),
+          const SizedBox(height: 8),
+          Text(
+            balanceString,
+            style: TextStyle(fontSize: 40, fontWeight: FontWeight.bold, color: balanceColor),
+          ),
+        ],
+      ),
     );
   }
 }

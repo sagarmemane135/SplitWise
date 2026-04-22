@@ -246,15 +246,21 @@ class AppStateController extends ChangeNotifier {
   }
 
   Map<String, double> get activeGroupBalances {
+    if (_activeGroupId == null) return <String, double>{};
+    return getBalancesForGroup(_activeGroupId!);
+  }
+
+  Map<String, double> getBalancesForGroup(String groupId) {
     final Map<String, double> balances = <String, double>{};
-    final ExpenseGroup? group = activeGroup;
+    final ExpenseGroup? group = _groupById(groupId);
     if (group == null) return balances;
 
     for (final GroupMember member in group.members) {
       balances[member.id] = 0.0;
     }
 
-    for (final ExpenseItem expense in activeGroupExpenses) {
+    final List<ExpenseItem> expenses = _expensesByGroup[groupId] ?? const <ExpenseItem>[];
+    for (final ExpenseItem expense in expenses) {
       for (final ExpensePayer payer in expense.payers) {
         balances[payer.memberId] = (balances[payer.memberId] ?? 0.0) + payer.amount;
       }
@@ -269,6 +275,22 @@ class AppStateController extends ChangeNotifier {
     }
 
     return balances;
+  }
+
+  double getUserBalanceForGroup(String groupId) {
+    final String? localIdentityId = _identityByGroup[groupId];
+    if (localIdentityId == null) return 0.0;
+
+    final Map<String, double> balances = getBalancesForGroup(groupId);
+    return balances[localIdentityId] ?? 0.0;
+  }
+
+  double get userTotalBalance {
+    double total = 0.0;
+    for (final ExpenseGroup group in _groups) {
+      total += getUserBalanceForGroup(group.id);
+    }
+    return total;
   }
 
   List<GroupComment> groupCommentsForExpense(String expenseId) {
