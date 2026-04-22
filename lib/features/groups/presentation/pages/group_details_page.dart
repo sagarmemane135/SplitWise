@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:typed_data';
 
+import 'package:share_plus/share_plus.dart';
+
 import '../../../../core/state/app_state.dart';
 import '../../../../core/utils/export.dart';
 import '../../../../core/utils/pdf_generator.dart';
@@ -33,7 +35,7 @@ class GroupDetailsPage extends StatelessWidget {
             IconButton(
               icon: const Icon(Icons.share),
               tooltip: 'Share Invite',
-              onPressed: () => _copyInviteLink(context),
+              onPressed: () => _shareInviteLink(context),
             ),
             IconButton(
               icon: const Icon(Icons.picture_as_pdf),
@@ -99,16 +101,15 @@ class GroupDetailsPage extends StatelessWidget {
     );
   }
 
-  Future<void> _copyInviteLink(BuildContext context) async {
+  Future<void> _shareInviteLink(BuildContext context) async {
     final AppStateController appState = AppStateScope.of(context);
     final String? link = appState.buildInviteLinkForActiveGroup();
     if (link == null) return;
-    await Clipboard.setData(ClipboardData(text: link));
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Invite link copied.')),
-      );
-    }
+    
+    final String message = 'Hey! Join my Splitwise group "${group.name}" to track our shared expenses and easily settle up: $link';
+    
+    // Fallback to clipboard if share isn't supported, but share_plus handles that on Web too
+    await Share.share(message, subject: 'Join ${group.name} on Splitwise');
   }
 
   Future<void> _downloadPDFReport(BuildContext context, ExpenseGroup group) async {

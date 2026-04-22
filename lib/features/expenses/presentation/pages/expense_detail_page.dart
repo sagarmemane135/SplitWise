@@ -5,6 +5,7 @@ import '../../../../core/widgets/section_card.dart';
 import '../../../../domain/entities/expense.dart';
 import '../../../../domain/entities/group.dart';
 import '../../../../domain/entities/group_member.dart';
+import 'add_expense_page.dart';
 
 class ExpenseDetailPage extends StatelessWidget {
   const ExpenseDetailPage({super.key, required this.expenseId});
@@ -29,7 +30,24 @@ class ExpenseDetailPage extends StatelessWidget {
 
     return Scaffold(
       resizeToAvoidBottomInset: false,
-      appBar: AppBar(title: Text(expense.title)),
+      appBar: AppBar(
+        title: Text(expense.title),
+        actions: <Widget>[
+          IconButton(
+            icon: const Icon(Icons.edit),
+            tooltip: 'Edit Expense',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (BuildContext context) => AddExpensePage(editExpenseId: expenseId),
+                  fullscreenDialog: true,
+                ),
+              );
+            },
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: <Widget>[
@@ -161,6 +179,8 @@ class _ExpenseCommentComposerState extends State<_ExpenseCommentComposer> {
         Expanded(
           child: TextField(
             controller: _controller,
+            textInputAction: TextInputAction.send,
+            onSubmitted: (String val) => _submitComment(),
             decoration: const InputDecoration(
               hintText: 'Write a comment on this expense',
             ),
@@ -168,20 +188,23 @@ class _ExpenseCommentComposerState extends State<_ExpenseCommentComposer> {
         ),
         const SizedBox(width: 8),
         FilledButton(
-          onPressed: () {
-            final String? error = widget.appState.addComment(
-              expenseId: widget.expenseId,
-              message: _controller.text,
-            );
-            if (error == null) {
-              _controller.clear();
-              return;
-            }
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
-          },
+          onPressed: _submitComment,
           child: const Text('Post'),
         ),
       ],
     );
+  }
+
+  void _submitComment() {
+    if (_controller.text.trim().isEmpty) return;
+    final String? error = widget.appState.addComment(
+      expenseId: widget.expenseId,
+      message: _controller.text,
+    );
+    if (error == null) {
+      _controller.clear();
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
   }
 }

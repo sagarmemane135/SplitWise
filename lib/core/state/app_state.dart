@@ -226,6 +226,21 @@ class AppStateController extends ChangeNotifier {
 
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     _localProfileUserId ??= _newId('user');
+
+    // Sweep all existing groups and update this user's name
+    if (_localProfileName != null && _localProfileName != trimmedName) {
+      for (int i = 0; i < _groups.length; i++) {
+        final ExpenseGroup oldGroup = _groups[i];
+        final List<GroupMember> updatedMembers = oldGroup.members.map((GroupMember m) {
+          if (m.id == _localProfileUserId) {
+            return m.copyWith(name: trimmedName);
+          }
+          return m;
+        }).toList();
+        _groups[i] = oldGroup.copyWith(members: updatedMembers);
+      }
+    }
+
     _localProfileName = trimmedName;
     _localCurrencyCode = normalizedCurrency;
 
@@ -233,6 +248,11 @@ class AppStateController extends ChangeNotifier {
     await prefs.setString(_profileNameKey, _localProfileName!);
     await prefs.setString(_profileCurrencyKey, _localCurrencyCode!);
 
+    _persistAppState();
+    if (!_isApplyingRemoteSync) {
+      _broadcastActiveGroupUpdate();
+    }
+    
     notifyListeners();
     return null;
   }
@@ -609,6 +629,59 @@ class AppStateController extends ChangeNotifier {
     final List<ExpenseItem> existing = List<ExpenseItem>.from(_expensesByGroup[group.id] ?? const <ExpenseItem>[])
       ..insert(0, expense);
     _expensesByGroup[group.id] = existing;
+    _persistAppState();
+    if (!_isApplyingRemoteSync) {
+      _broadcastActiveGroupUpdate();
+    }
+    notifyListeners();
+    return null;
+  }
+
+  String? updateExpense({
+    required String id,
+    required String title,
+    required double totalAmount,
+    required DateTime date,
+    required SplitMethod splitMethod,
+    required List<ExpensePayer> payers,
+    required List<String> participants,
+    required List<ExpenseParticipantShare> shares,
+  }) {
+    final ExpenseGroup? group = activeGroup;
+    final GroupMember? identity = activeIdentity;
+    if (group == null) {
+      return 'No active group selected.';
+    }
+    if (identity == null) {
+      return 'Select your identity before editing an expense.';
+    }
+
+    final List<ExpenseItem> existing = List<ExpenseItem>.from(_expensesByGroup[group.id] ?? const <ExpenseItem>[]);
+    final int index = existing.indexWhere((ExpenseItem e) => e.id == id);
+    
+    if (index == -1) {
+      return 'Expense not found.';
+    }
+    
+    // Preserve the original creator
+    final String originalCreatorId = existing[index].createdBy;
+
+    final ExpenseItem updatedExpense = ExpenseItem(
+      id: id,
+      groupId: group.id,
+      title: title,
+      totalAmount: totalAmount,
+      payers: payers,
+      participants: participants,
+      splitMethod: splitMethod,
+      splitShares: shares,
+      date: date,
+      createdBy: originalCreatorId,
+    );
+
+    existing[index] = updatedExpense;
+    _expensesByGroup[group.id] = existing;
+    
     _persistAppState();
     if (!_isApplyingRemoteSync) {
       _broadcastActiveGroupUpdate();

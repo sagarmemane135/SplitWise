@@ -6,7 +6,9 @@ import '../../../../domain/entities/group.dart';
 import '../../../../domain/entities/group_member.dart';
 
 class AddExpensePage extends StatefulWidget {
-  const AddExpensePage({super.key});
+  const AddExpensePage({super.key, this.editExpenseId});
+
+  final String? editExpenseId;
 
   @override
   State<AddExpensePage> createState() => _AddExpensePageState();
@@ -45,13 +47,37 @@ class _AddExpensePageState extends State<AddExpensePage> {
   void _initForm(ExpenseGroup group, AppStateController appState) {
     if (_initialized) return;
 
-    final String meId = appState.localProfileUserId ?? group.members.first.id;
-    _payerMemberIds.add(meId);
-    _payerAmountControllers[meId] = TextEditingController();
-
     for (final GroupMember m in group.members) {
-      _selectedParticipantIds.add(m.id);
       _shareControllers[m.id] = TextEditingController();
+    }
+
+    if (widget.editExpenseId != null) {
+      final ExpenseItem? expense = appState.activeGroupExpenses.where((ExpenseItem e) => e.id == widget.editExpenseId).firstOrNull;
+      if (expense != null) {
+        _titleController.text = expense.title;
+        _totalController.text = expense.totalAmount.toString();
+        _selectedDate = expense.date;
+        _splitMethod = expense.splitMethod;
+        
+        for (final ExpensePayer ep in expense.payers) {
+          _payerMemberIds.add(ep.memberId);
+          _payerAmountControllers[ep.memberId] = TextEditingController(text: ep.amount.toString());
+        }
+        
+        for (final String pid in expense.participants) {
+          _selectedParticipantIds.add(pid);
+        }
+        for (final ExpenseParticipantShare es in expense.splitShares) {
+          _shareControllers[es.memberId]?.text = es.value.toString();
+        }
+      }
+    } else {
+      final String meId = appState.localProfileUserId ?? group.members.first.id;
+      _payerMemberIds.add(meId);
+      _payerAmountControllers[meId] = TextEditingController();
+      for (final GroupMember m in group.members) {
+        _selectedParticipantIds.add(m.id);
+      }
     }
     
     _totalController.addListener(_onTotalChanged);
@@ -59,7 +85,7 @@ class _AddExpensePageState extends State<AddExpensePage> {
   }
 
   void _onTotalChanged() {
-    if (_payerMemberIds.length == 1) {
+    if (_payerMemberIds.length == 1 && widget.editExpenseId == null) {
        _payerAmountControllers[_payerMemberIds.first]?.text = _totalController.text;
     }
     setState(() {});
@@ -84,11 +110,11 @@ class _AddExpensePageState extends State<AddExpensePage> {
 
     return Scaffold(
       resizeToAvoidBottomInset: false,
-      appBar: AppBar(title: const Text('Add Expense')),
+      appBar: AppBar(title: Text(widget.editExpenseId != null ? 'Edit Expense' : 'Add Expense')),
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
         children: <Widget>[
-          Text('Add Expense', style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
+          Text(widget.editExpenseId != null ? 'Edit Expense' : 'Add Expense', style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
           const SizedBox(height: 24),
           
           TextField(
@@ -372,15 +398,29 @@ class _AddExpensePageState extends State<AddExpensePage> {
       }
     }
 
-    final String? error = appState.createExpense(
-      title: title,
-      totalAmount: total,
-      date: _selectedDate,
-      splitMethod: _splitMethod,
-      payers: payers,
-      participants: _selectedParticipantIds.toList(),
-      shares: shares,
-    );
+    String? error;
+    if (widget.editExpenseId != null) {
+      error = appState.updateExpense(
+        id: widget.editExpenseId!,
+        title: title,
+        totalAmount: total,
+        date: _selectedDate,
+        splitMethod: _splitMethod,
+        payers: payers,
+        participants: _selectedParticipantIds.toList(),
+        shares: shares,
+      );
+    } else {
+      error = appState.createExpense(
+        title: title,
+        totalAmount: total,
+        date: _selectedDate,
+        splitMethod: _splitMethod,
+        payers: payers,
+        participants: _selectedParticipantIds.toList(),
+        shares: shares,
+      );
+    }
 
     if (error != null) {
       _setValidation(error);
@@ -406,8 +446,9 @@ class _AddExpensePageState extends State<AddExpensePage> {
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Expense added successfully.')),
+      SnackBar(content: Text(widget.editExpenseId != null ? 'Expense updated.' : 'Expense added successfully.')),
     );
+    Navigator.of(context).pop();
   }
 
   void _setValidation(String message) {
