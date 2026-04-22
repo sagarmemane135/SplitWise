@@ -30,15 +30,27 @@ class _PeerJsCollaborationTransport extends CollaborationTransport {
       'port': 443,
       'path': '/',
       'secure': true,
-      'debug': 2,
+      'debug': 1, // Reduced debug noise
       'config': <String, dynamic>{
-        'iceServers': <Map<String, String>>[
+        'iceServers': <Map<String, dynamic>>[
           <String, String>{'urls': 'stun:stun.l.google.com:19302'},
           <String, String>{'urls': 'stun:stun1.l.google.com:19302'},
           <String, String>{'urls': 'stun:stun2.l.google.com:19302'},
           <String, String>{'urls': 'stun:stun3.l.google.com:19302'},
           <String, String>{'urls': 'stun:stun4.l.google.com:19302'},
+          <String, String>{'urls': 'stun:openrelay.metered.ca:80'},
+          <String, dynamic>{
+            'urls': <String>[
+              'turn:openrelay.metered.ca:80',
+              'turn:openrelay.metered.ca:443',
+              'turns:openrelay.metered.ca:443',
+            ],
+            'username': 'openrelayproject',
+            'credential': 'openrelayproject',
+          },
         ],
+        'sdpSemantics': 'unified-plan',
+        'iceCandidatePoolSize': 10,
       },
     };
 
@@ -109,6 +121,31 @@ class _PeerJsCollaborationTransport extends CollaborationTransport {
 
   @override
   Future<void> connect(String remotePeerId) async {
+    int attempts = 0;
+    const int maxAttempts = 3;
+    StateError? lastError;
+
+    while (attempts < maxAttempts) {
+      try {
+        attempts++;
+        if (attempts > 1) {
+          onError?.call('Retrying connection (Attempt $attempts of $maxAttempts)...');
+          await Future<void>.delayed(const Duration(seconds: 2));
+        }
+        await _attemptConnect(remotePeerId);
+        return; // Success
+      } on StateError catch (e) {
+        lastError = e;
+        // Don't retry if peer is clearly unavailable
+        if (e.message.contains('peer-unavailable')) break;
+      } catch (e) {
+        lastError = StateError(e.toString());
+      }
+    }
+    throw lastError ?? StateError('Connection failed after $maxAttempts attempts.');
+  }
+
+  Future<void> _attemptConnect(String remotePeerId) async {
     if (_peer == null) {
       await initPeer();
     }
@@ -149,7 +186,8 @@ class _PeerJsCollaborationTransport extends CollaborationTransport {
       }
     }
 
-    timeout = Timer(const Duration(seconds: 15), () {
+    // Increased timeout for mobile/cellular networks
+    timeout = Timer(const Duration(seconds: 30), () {
       finishError('Connection timeout. Ensure host is online and try again.');
       try {
         connection.callMethod('close', <dynamic>[]);
@@ -174,7 +212,7 @@ class _PeerJsCollaborationTransport extends CollaborationTransport {
           final String? type = _readJsStringProperty(err, 'type');
           finishError(type == 'peer-unavailable'
               ? 'Host peer is unavailable. Check invite link and host status.'
-              : 'Connection failed. Check both devices network and retry.');
+              : 'Connection failed ($type). Check both devices network and retry.');
         },
       ],
     );

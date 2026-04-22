@@ -93,6 +93,9 @@ class AppStateController extends ChangeNotifier {
   String? _localCurrencyCode;
   bool _collaborationReady = false;
   bool _isHostingSession = false;
+  bool _isConnectingToHost = false;
+  bool get isConnectingToHost => _isConnectingToHost;
+
   bool _isApplyingRemoteSync = false;
   String? _localPeerId;
   String? _connectedHostPeerId;
@@ -203,12 +206,17 @@ class AppStateController extends ChangeNotifier {
     notifyListeners();
 
     try {
+      _isConnectingToHost = true;
+      notifyListeners();
       await _collaborationTransport.connect(trimmed);
       return null;
     } catch (e) {
       _collaborationError = e.toString().replaceFirst('Bad state: ', '');
       notifyListeners();
       return _collaborationError;
+    } finally {
+      _isConnectingToHost = false;
+      notifyListeners();
     }
   }
 
