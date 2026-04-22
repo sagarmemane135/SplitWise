@@ -6,12 +6,7 @@ import '../../../../core/widgets/section_card.dart';
 import '../../../../domain/entities/group.dart';
 import '../../../../domain/entities/group_member.dart';
 
-class Settlement {
-  const Settlement({required this.fromId, required this.toId, required this.amount});
-  final String fromId;
-  final String toId;
-  final double amount;
-}
+import '../../../../core/utils/settlement_calculator.dart';
 
 class DebtsPage extends StatelessWidget {
   const DebtsPage({super.key});
@@ -26,7 +21,7 @@ class DebtsPage extends StatelessWidget {
     }
 
     final Map<String, double> balances = appState.activeGroupBalances;
-    final List<Settlement> settlements = _calculateSettlements(balances);
+    final List<Settlement> settlements = calculateOptimalSettlements(balances);
 
     return ListView(
         padding: const EdgeInsets.all(16),
@@ -54,45 +49,6 @@ class DebtsPage extends StatelessWidget {
     );
   }
 
-  List<Settlement> _calculateSettlements(Map<String, double> balances) {
-    final List<MapEntry<String, double>> creditors = balances.entries
-        .where((MapEntry<String, double> e) => e.value > 0.01)
-        .toList()
-      ..sort((MapEntry<String, double> a, MapEntry<String, double> b) => a.value.compareTo(b.value));
-
-    final List<MapEntry<String, double>> debtors = balances.entries
-        .where((MapEntry<String, double> e) => e.value < -0.01)
-        .toList()
-      ..sort((MapEntry<String, double> a, MapEntry<String, double> b) => a.value.compareTo(b.value));
-
-    final List<Settlement> settlements = <Settlement>[];
-
-    while (creditors.isNotEmpty && debtors.isNotEmpty) {
-      final MapEntry<String, double> creditor = creditors.removeLast();
-      final MapEntry<String, double> debtor = debtors.removeFirst(); // lowest negative is largest absolute debt
-
-      final double debtAbs = debtor.value.abs();
-      final double credit = creditor.value;
-      final double settledAmount = min(debtAbs, credit);
-
-      if (settledAmount < 0.01) continue;
-
-      settlements.add(Settlement(fromId: debtor.key, toId: creditor.key, amount: settledAmount));
-
-      final double remainingCredit = credit - settledAmount;
-      final double remainingDebt = debtAbs - settledAmount;
-
-      if (remainingCredit > 0.01) {
-        creditors.add(MapEntry<String, double>(creditor.key, remainingCredit));
-        creditors.sort((MapEntry<String, double> a, MapEntry<String, double> b) => a.value.compareTo(b.value));
-      }
-      if (remainingDebt > 0.01) {
-        debtors.insert(0, MapEntry<String, double>(debtor.key, -remainingDebt));
-      }
-    }
-
-    return settlements;
-  }
 
   GroupMember? _getMember(ExpenseGroup group, String id) {
     for (final GroupMember m in group.members) {
@@ -102,11 +58,7 @@ class DebtsPage extends StatelessWidget {
   }
 }
 
-extension ListExtensions<T> on List<T> {
-  T removeFirst() {
-    return removeAt(0);
-  }
-}
+
 
 class _DebtCard extends StatelessWidget {
   const _DebtCard({required this.fromMem, required this.toMem, required this.amount});

@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:typed_data';
 
 import '../../../../core/state/app_state.dart';
+import '../../../../core/utils/export.dart';
+import '../../../../core/utils/pdf_generator.dart';
+import '../../../../domain/entities/expense.dart';
 import '../../../../domain/entities/group.dart';
 import '../../../debts/presentation/pages/debts_page.dart';
 import '../../../expenses/presentation/pages/add_expense_page.dart';
@@ -30,6 +34,11 @@ class GroupDetailsPage extends StatelessWidget {
               icon: const Icon(Icons.share),
               tooltip: 'Share Invite',
               onPressed: () => _copyInviteLink(context),
+            ),
+            IconButton(
+              icon: const Icon(Icons.picture_as_pdf),
+              tooltip: 'Export PDF',
+              onPressed: () => _downloadPDFReport(context, group),
             ),
           ],
           bottom: const TabBar(
@@ -98,6 +107,32 @@ class GroupDetailsPage extends StatelessWidget {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Invite link copied.')),
+      );
+    }
+  }
+
+  Future<void> _downloadPDFReport(BuildContext context, ExpenseGroup group) async {
+    final AppStateController appState = AppStateScope.of(context);
+    
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Generating PDF Report...')),
+      );
+    }
+    
+    final Uint8List pdfBytes = await generateGroupReportPdf(
+      group: group,
+      expenses: appState.activeGroupExpenses,
+      balances: appState.activeGroupBalances,
+      currencyCode: appState.localCurrencyCode ?? 'USD',
+    );
+    
+    final String filename = 'Splitwise_${group.name.replaceAll(' ', '_')}_Report.pdf';
+    downloadFile(filename, pdfBytes, mimeType: 'application/pdf');
+    
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Report Downloaded!')),
       );
     }
   }
