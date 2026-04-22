@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
+import '../../domain/entities/activity_log.dart';
 import '../../domain/entities/expense.dart';
 import '../../domain/entities/group.dart';
 import '../../domain/entities/group_member.dart';
@@ -79,6 +80,7 @@ class AppStateController extends ChangeNotifier {
   final List<ExpenseGroup> _groups = <ExpenseGroup>[];
   final Map<String, List<ExpenseItem>> _expensesByGroup = <String, List<ExpenseItem>>{};
   final Map<String, List<GroupComment>> _commentsByGroup = <String, List<GroupComment>>{};
+  final Map<String, List<ActivityLog>> _activitiesByGroup = <String, List<ActivityLog>>{};
   final Map<String, String> _identityByGroup = <String, String>{};
   final Map<String, String> _joinTokenByGroup = <String, String>{};
   final CollaborationTransport _collaborationTransport = createCollaborationTransport();
@@ -238,6 +240,14 @@ class AppStateController extends ChangeNotifier {
           return m;
         }).toList();
         _groups[i] = oldGroup.copyWith(members: updatedMembers);
+
+        _logActivity(
+          groupId: oldGroup.id,
+          memberId: _localProfileUserId!,
+          action: ActivityAction.memberNameChanged,
+          description: 'Changed their name from $_localProfileName to $trimmedName',
+          skipBroadcasting: true,
+        );
       }
     }
 
@@ -263,6 +273,13 @@ class AppStateController extends ChangeNotifier {
       return const <ExpenseItem>[];
     }
     return List<ExpenseItem>.unmodifiable(_expensesByGroup[groupId] ?? const <ExpenseItem>[]);
+  }
+
+  List<ActivityLog> get activeGroupActivities {
+    if (_activeGroupId == null) {
+      return const <ActivityLog>[];
+    }
+    return List<ActivityLog>.unmodifiable(_activitiesByGroup[_activeGroupId!] ?? const <ActivityLog>[]);
   }
 
   Map<String, double> get activeGroupBalances {
@@ -366,6 +383,15 @@ class AppStateController extends ChangeNotifier {
     _expensesByGroup[groupId] = <ExpenseItem>[];
     _commentsByGroup[groupId] = <GroupComment>[];
     _joinTokenByGroup[groupId] = _newInviteToken();
+
+    _logActivity(
+      groupId: groupId,
+      memberId: adminId,
+      action: ActivityAction.groupCreated,
+      description: 'Created the group "$trimmedGroup"',
+      skipBroadcasting: true,
+    );
+
     _persistAppState();
     if (!_isApplyingRemoteSync) {
       _broadcastActiveGroupUpdate();
@@ -629,6 +655,14 @@ class AppStateController extends ChangeNotifier {
     final List<ExpenseItem> existing = List<ExpenseItem>.from(_expensesByGroup[group.id] ?? const <ExpenseItem>[])
       ..insert(0, expense);
     _expensesByGroup[group.id] = existing;
+
+    _logActivity(
+      groupId: group.id,
+      memberId: identity.id,
+      action: ActivityAction.expenseAdded,
+      description: 'Added expense "${expense.title}" for ${expense.totalAmount.toStringAsFixed(2)}',
+    );
+
     _persistAppState();
     if (!_isApplyingRemoteSync) {
       _broadcastActiveGroupUpdate();
@@ -682,6 +716,13 @@ class AppStateController extends ChangeNotifier {
     existing[index] = updatedExpense;
     _expensesByGroup[group.id] = existing;
     
+    _logActivity(
+      groupId: group.id,
+      memberId: identity.id,
+      action: ActivityAction.expenseUpdated,
+      description: 'Updated expense "${updatedExpense.title}" to ${updatedExpense.totalAmount.toStringAsFixed(2)}',
+    );
+
     _persistAppState();
     if (!_isApplyingRemoteSync) {
       _broadcastActiveGroupUpdate();
@@ -724,6 +765,29 @@ class AppStateController extends ChangeNotifier {
     }
     notifyListeners();
     return null;
+  }
+
+  void _logActivity({
+    required String groupId,
+    required String memberId,
+    required ActivityAction action,
+    required String description,
+    bool skipBroadcasting = false,
+  }) {
+    final ActivityLog log = ActivityLog(
+      id: _newId('activity'),
+      groupId: groupId,
+      memberId: memberId,
+      action: action,
+      timestamp: DateTime.now(),
+      description: description,
+    );
+    final List<ActivityLog> existing = List<ActivityLog>.from(_activitiesByGroup[groupId] ?? const <ActivityLog>[]);
+    existing.insert(0, log);
+    _activitiesByGroup[groupId] = existing;
+    if (!skipBroadcasting && !_isApplyingRemoteSync) {
+      _broadcastActiveGroupUpdate();
+    }
   }
 
   bool _isMemberUsedInGroupExpenses(String groupId, String memberId) {
@@ -784,6 +848,7 @@ class AppStateController extends ChangeNotifier {
           .toList(),
       'expenses': expenses.map(_expenseToJson).toList(),
       'comments': comments.map(_commentToJson).toList(),
+      'activities': (_activitiesByGroup[group.id] ?? const <ActivityLog>[]).map((ActivityLog a) => a.toJson()).toList(),
     };
     return base64Url.encode(utf8.encode(jsonEncode(payload)));
   }
@@ -806,6 +871,7 @@ class AppStateController extends ChangeNotifier {
       final List<dynamic>? rawMembers = payload['members'] as List<dynamic>?;
       final List<dynamic> rawExpenses = payload['expenses'] as List<dynamic>? ?? const <dynamic>[];
       final List<dynamic> rawComments = payload['comments'] as List<dynamic>? ?? const <dynamic>[];
+      final List<dynamic> rawActivities = payload['activities'] as List<dynamic>? ?? const <dynamic>[];
       if (groupName == null || groupName.trim().isEmpty || rawMembers == null) {
         return null;
       }
@@ -871,6 +937,16 @@ class AppStateController extends ChangeNotifier {
       if (existing == null || upsertExisting) {
         _expensesByGroup[groupId] = expenses;
         _commentsByGroup[groupId] = comments;
+
+        final List<ActivityLog> activities = <ActivityLog>[];
+        for (final dynamic raw in rawActivities) {
+          if (raw is! Map<String, dynamic>) continue;
+          final ActivityLog? item = ActivityLog.fromJson(raw);
+          if (item != null) activities.add(item);
+        }
+        if (activities.isNotEmpty) {
+          _activitiesByGroup[groupId] = activities;
+        }
       }
       _joinTokenByGroup[groupId] = token;
       _persistAppState();
@@ -1069,6 +1145,15 @@ class AppStateController extends ChangeNotifier {
       effectiveGroup = group.copyWith(members: members);
       _replaceGroup(effectiveGroup);
       existingMember = newMember;
+      
+      _logActivity(
+        groupId: effectiveGroup.id,
+        memberId: newMember.id,
+        action: ActivityAction.memberJoined,
+        description: 'Joined the group via an invite link',
+        skipBroadcasting: true,
+      );
+      
       _persistAppState();
     }
 
@@ -1136,6 +1221,12 @@ class AppStateController extends ChangeNotifier {
           (String key, List<GroupComment> value) => MapEntry<String, dynamic>(
             key,
             value.map(_commentToJson).toList(),
+          ),
+        ),
+        'activitiesByGroup': _activitiesByGroup.map(
+          (String key, List<ActivityLog> value) => MapEntry<String, dynamic>(
+            key,
+            value.map((ActivityLog a) => a.toJson()).toList(),
           ),
         ),
       };
@@ -1208,12 +1299,31 @@ class AppStateController extends ChangeNotifier {
         }
         _commentsByGroup[groupId] = items;
       });
+
+      _activitiesByGroup.clear();
+      final Map<String, dynamic> activitiesMap =
+          payload['activitiesByGroup'] as Map<String, dynamic>? ?? const <String, dynamic>{};
+      activitiesMap.forEach((String groupId, dynamic rawItems) {
+        final List<ActivityLog> items = <ActivityLog>[];
+        if (rawItems is List<dynamic>) {
+          for (final dynamic rawItem in rawItems) {
+            if (rawItem is Map<String, dynamic>) {
+              final ActivityLog? item = ActivityLog.fromJson(rawItem);
+              if (item != null) {
+                items.add(item);
+              }
+            }
+          }
+        }
+        _activitiesByGroup[groupId] = items;
+      });
     } catch (_) {
       _groups.clear();
       _identityByGroup.clear();
       _joinTokenByGroup.clear();
       _expensesByGroup.clear();
       _commentsByGroup.clear();
+      _activitiesByGroup.clear();
       _activeGroupId = null;
     }
   }

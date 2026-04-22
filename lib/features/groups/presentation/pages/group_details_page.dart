@@ -13,6 +13,7 @@ import '../../../debts/presentation/pages/debts_page.dart';
 import '../../../expenses/presentation/pages/add_expense_page.dart';
 import '../../../expenses/presentation/pages/expenses_page.dart';
 import '../../../shares/presentation/pages/shares_page.dart';
+import '../../../activity/presentation/pages/group_activity_tab.dart';
 
 class GroupDetailsPage extends StatelessWidget {
   const GroupDetailsPage({super.key, required this.group});
@@ -22,7 +23,7 @@ class GroupDetailsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 3,
+      length: 4,
       child: Scaffold(
         appBar: AppBar(
           title: Text(group.name),
@@ -45,9 +46,10 @@ class GroupDetailsPage extends StatelessWidget {
           ],
           bottom: const TabBar(
             tabs: <Widget>[
-              Tab(text: 'Expenses'),
-              Tab(text: 'Balances'),
-              Tab(text: 'Settle Up'),
+              Tab(icon: Icon(Icons.receipt_long, size: 18), text: 'Expenses'),
+              Tab(icon: Icon(Icons.account_balance_wallet, size: 18), text: 'Balances'),
+              Tab(icon: Icon(Icons.handshake_outlined, size: 18), text: 'Settle Up'),
+              Tab(icon: Icon(Icons.timeline_rounded, size: 18), text: 'Activity'),
             ],
           ),
         ),
@@ -56,6 +58,7 @@ class GroupDetailsPage extends StatelessWidget {
             ExpensesPage(),
             SharesPage(),
             DebtsPage(),
+            const GroupActivityTab(),
           ],
         ),
         floatingActionButton: FloatingActionButton(
