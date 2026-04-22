@@ -2,7 +2,7 @@
 
 ## What is implemented
 - Invite links generated in web mode use the current hosted origin/path and hash route:
-  - `https://<user>.github.io/SplitWise/#/join?groupId=...&token=...`
+  - `https://<user>.github.io/SplitEase/#/join?groupId=...&token=...`
 - App can parse join params from:
   - URL query (`?groupId=...&token=...`)
   - Hash route query (`#/join?groupId=...&token=...`)
@@ -20,5 +20,5 @@ Without a signaling path, internet-grade automatic peer connection cannot be gua
 
 ## Deployment notes
 - Workflow file: `.github/workflows/deploy-pages.yml`
-- Current base href is set to `/SplitWise/`.
+- Current base href is set to `/SplitEase/`.
 - If repository name changes, update the workflow build command accordingly.

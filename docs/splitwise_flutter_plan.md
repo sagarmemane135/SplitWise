@@ -1,4 +1,4 @@
-# Splitwise-like Flutter App Plan (No Backend + Optional P2P)
+# SplitEase-like Flutter App Plan (No Backend + Optional P2P)
 
 ## Goals
 - Build an offline-first Flutter mobile app for group expense tracking.

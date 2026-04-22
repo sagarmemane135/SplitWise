@@ -2,7 +2,7 @@
 
 ## Workspace Root
 
-SplitWise/
+SplitEase/
 |- android/
 |- ios/
 |- linux/
