@@ -13,26 +13,26 @@ import 'theme/app_theme.dart';
 class SplitwiseApp extends StatelessWidget {
   const SplitwiseApp({super.key});
 
-  static const AppStateScope _root = AppStateScope(child: AppRootGate());
-
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Splitwise',
-      debugShowCheckedModeBanner: false,
-      theme: buildAppTheme(),
-      onGenerateRoute: (RouteSettings settings) {
-        if (settings.name != null && settings.name!.startsWith('/join')) {
+    return AppStateScope(
+      child: MaterialApp(
+        title: 'Splitwise',
+        debugShowCheckedModeBanner: false,
+        theme: buildAppTheme(),
+        onGenerateRoute: (RouteSettings settings) {
+          if (settings.name != null && settings.name!.startsWith('/join')) {
+            return MaterialPageRoute<void>(
+              settings: settings,
+              builder: (_) => const AppRootGate(),
+            );
+          }
           return MaterialPageRoute<void>(
-            settings: settings,
-            builder: (_) => _root,
+            settings: const RouteSettings(name: '/'),
+            builder: (_) => const AppRootGate(),
           );
-        }
-        return MaterialPageRoute<void>(
-          settings: const RouteSettings(name: '/'),
-          builder: (_) => _root,
-        );
-      },
+        },
+      ),
     );
   }
 }
@@ -119,6 +119,7 @@ class SplitwiseShellPage extends StatefulWidget {
 
 class _SplitwiseShellPageState extends State<SplitwiseShellPage> {
   int _currentIndex = 0;
+  late final List<GlobalKey<NavigatorState>> _navigatorKeys = List.generate(5, (_) => GlobalKey<NavigatorState>());
 
   static const List<String> _titles = <String>[
     'Expenses',
@@ -138,21 +139,58 @@ class _SplitwiseShellPageState extends State<SplitwiseShellPage> {
 
   @override
   Widget build(BuildContext context) {
+    final AppStateController appState = AppStateScope.of(context);
+    final bool hasGroup = appState.activeGroup != null;
+
+    final List<String> activeTitles = hasGroup ? _titles : const <String>['Manage'];
+    final List<Widget> activePages = hasGroup ? _pages : const <Widget>[ManagePage()];
+    final List<NavigationDestination> activeDestinations = hasGroup
+        ? const <NavigationDestination>[
+            NavigationDestination(icon: Icon(Icons.receipt_long), label: 'Expenses'),
+            NavigationDestination(icon: Icon(Icons.pie_chart), label: 'Shares'),
+            NavigationDestination(icon: Icon(Icons.add_circle_outline), label: 'Add'),
+            NavigationDestination(icon: Icon(Icons.swap_horiz), label: 'Debts'),
+            NavigationDestination(icon: Icon(Icons.settings), label: 'Manage'),
+          ]
+        : const <NavigationDestination>[
+            NavigationDestination(icon: Icon(Icons.settings), label: 'Manage'),
+          ];
+
+    int displayIndex = _currentIndex;
+    if (displayIndex >= activePages.length) {
+      displayIndex = 0;
+    }
+
     return Scaffold(
-      appBar: AppBar(title: Text(_titles[_currentIndex])),
-      body: IndexedStack(index: _currentIndex, children: _pages),
+      resizeToAvoidBottomInset: false,
+      body: IndexedStack(
+        index: displayIndex,
+        children: _navigatorKeys.asMap().entries.map((entry) {
+          final int i = entry.key;
+          return Navigator(
+            key: entry.value,
+            onGenerateRoute: (RouteSettings settings) {
+              return MaterialPageRoute<void>(
+                builder: (_) => activePages[i],
+              );
+            },
+          );
+        }).toList(),
+      ),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        destinations: const <NavigationDestination>[
-          NavigationDestination(icon: Icon(Icons.receipt_long), label: 'Expenses'),
-          NavigationDestination(icon: Icon(Icons.pie_chart), label: 'Shares'),
-          NavigationDestination(icon: Icon(Icons.add_circle_outline), label: 'Add'),
-          NavigationDestination(icon: Icon(Icons.swap_horiz), label: 'Debts'),
-          NavigationDestination(icon: Icon(Icons.settings), label: 'Manage'),
-        ],
+        selectedIndex: displayIndex,
+        destinations: activeDestinations,
         onDestinationSelected: (int index) {
           setState(() {
-            _currentIndex = index;
+            if (!hasGroup) {
+              _currentIndex = 0;
+            } else {
+              if (_currentIndex == index) {
+                // If tapping the same tab, pop to root of that tab's navigator
+                _navigatorKeys[index].currentState?.popUntil((Route<dynamic> route) => route.isFirst);
+              }
+              _currentIndex = index;
+            }
           });
         },
       ),

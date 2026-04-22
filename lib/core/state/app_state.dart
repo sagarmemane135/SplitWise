@@ -18,14 +18,14 @@ class JoinLinkResult {
 class GroupComment {
   const GroupComment({
     required this.id,
-    required this.groupId,
+    required this.expenseId,
     required this.authorMemberId,
     required this.message,
     required this.createdAt,
   });
 
   final String id;
-  final String groupId;
+  final String expenseId;
   final String authorMemberId;
   final String message;
   final DateTime createdAt;
@@ -245,12 +245,41 @@ class AppStateController extends ChangeNotifier {
     return List<ExpenseItem>.unmodifiable(_expensesByGroup[groupId] ?? const <ExpenseItem>[]);
   }
 
-  List<GroupComment> get activeGroupComments {
+  Map<String, double> get activeGroupBalances {
+    final Map<String, double> balances = <String, double>{};
+    final ExpenseGroup? group = activeGroup;
+    if (group == null) return balances;
+
+    for (final GroupMember member in group.members) {
+      balances[member.id] = 0.0;
+    }
+
+    for (final ExpenseItem expense in activeGroupExpenses) {
+      for (final ExpensePayer payer in expense.payers) {
+        balances[payer.memberId] = (balances[payer.memberId] ?? 0.0) + payer.amount;
+      }
+
+      for (final ExpenseParticipantShare share in expense.splitShares) {
+        double actualOwed = share.value;
+        if (expense.splitMethod == SplitMethod.percentage) {
+          actualOwed = (share.value / 100.0) * expense.totalAmount;
+        }
+        balances[share.memberId] = (balances[share.memberId] ?? 0.0) - actualOwed;
+      }
+    }
+
+    return balances;
+  }
+
+  List<GroupComment> groupCommentsForExpense(String expenseId) {
     final String? groupId = _activeGroupId;
     if (groupId == null) {
       return const <GroupComment>[];
     }
-    return List<GroupComment>.unmodifiable(_commentsByGroup[groupId] ?? const <GroupComment>[]);
+    return List<GroupComment>.unmodifiable(
+      (_commentsByGroup[groupId] ?? const <GroupComment>[])
+          .where((GroupComment c) => c.expenseId == expenseId),
+    );
   }
 
   bool hasDuplicateMemberName(ExpenseGroup group, String name) {
@@ -566,7 +595,7 @@ class AppStateController extends ChangeNotifier {
     return null;
   }
 
-  String? addComment(String message) {
+  String? addComment({required String expenseId, required String message}) {
     final ExpenseGroup? group = activeGroup;
     final GroupMember? identity = activeIdentity;
     if (group == null) {
@@ -583,7 +612,7 @@ class AppStateController extends ChangeNotifier {
 
     final GroupComment comment = GroupComment(
       id: _newId('comment'),
-      groupId: group.id,
+      expenseId: expenseId,
       authorMemberId: identity.id,
       message: trimmed,
       createdAt: DateTime.now(),
@@ -1176,7 +1205,7 @@ class AppStateController extends ChangeNotifier {
   Map<String, dynamic> _commentToJson(GroupComment item) {
     return <String, dynamic>{
       'id': item.id,
-      'groupId': item.groupId,
+      'expenseId': item.expenseId,
       'authorMemberId': item.authorMemberId,
       'message': item.message,
       'createdAt': item.createdAt.toIso8601String(),
@@ -1264,12 +1293,12 @@ class AppStateController extends ChangeNotifier {
 
   GroupComment? _commentFromJson(Map<String, dynamic> raw) {
     final String? id = raw['id'] as String?;
-    final String? groupId = raw['groupId'] as String?;
+    final String? expenseId = raw['expenseId'] as String?;
     final String? authorMemberId = raw['authorMemberId'] as String?;
     final String? message = raw['message'] as String?;
     final String? createdAtRaw = raw['createdAt'] as String?;
     if (id == null ||
-        groupId == null ||
+        expenseId == null ||
         authorMemberId == null ||
         message == null ||
         createdAtRaw == null) {
@@ -1283,7 +1312,7 @@ class AppStateController extends ChangeNotifier {
 
     return GroupComment(
       id: id,
-      groupId: groupId,
+      expenseId: expenseId,
       authorMemberId: authorMemberId,
       message: message,
       createdAt: createdAt,

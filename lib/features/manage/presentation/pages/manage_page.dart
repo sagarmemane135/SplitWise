@@ -15,8 +15,10 @@ class ManagePage extends StatelessWidget {
     final ExpenseGroup? activeGroup = appState.activeGroup;
     final GroupMember? activeIdentity = appState.activeIdentity;
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    return Scaffold(
+      appBar: AppBar(title: const Text('Manage')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
       children: <Widget>[
         SectionCard(
           title: 'Local profile',
@@ -145,6 +147,7 @@ class ManagePage extends StatelessWidget {
           icon: Icons.picture_as_pdf,
         ),
       ],
+    ),
     );
   }
 
