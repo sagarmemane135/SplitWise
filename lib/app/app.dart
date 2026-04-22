@@ -7,14 +7,14 @@ import '../features/manage/presentation/pages/manage_page.dart';
 import '../features/onboarding/presentation/pages/profile_setup_page.dart';
 import 'theme/app_theme.dart';
 
-class SplitwiseApp extends StatelessWidget {
-  const SplitwiseApp({super.key});
+class SplitEaseApp extends StatelessWidget {
+  const SplitEaseApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return AppStateScope(
       child: MaterialApp(
-        title: 'Splitwise',
+        title: 'SplitEase',
         debugShowCheckedModeBanner: false,
         theme: buildAppTheme(),
         onGenerateRoute: (RouteSettings settings) {
@@ -103,18 +103,18 @@ class _AppRootGateState extends State<AppRootGate> {
 
     _tryHandleWebLaunchJoinLink(appState);
 
-    return const SplitwiseShellPage();
+    return const SplitEaseShellPage();
   }
 }
 
-class SplitwiseShellPage extends StatefulWidget {
-  const SplitwiseShellPage({super.key});
+class SplitEaseShellPage extends StatefulWidget {
+  const SplitEaseShellPage({super.key});
 
   @override
-  State<SplitwiseShellPage> createState() => _SplitwiseShellPageState();
+  State<SplitEaseShellPage> createState() => _SplitEaseShellPageState();
 }
 
-class _SplitwiseShellPageState extends State<SplitwiseShellPage> {
+class _SplitEaseShellPageState extends State<SplitEaseShellPage> {
   int _currentIndex = 0;
   late final List<GlobalKey<NavigatorState>> _navigatorKeys = List.generate(2, (_) => GlobalKey<NavigatorState>());
 

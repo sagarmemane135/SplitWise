@@ -1,11 +1,11 @@
 {
-    "name": "splitwise",
-    "short_name": "splitwise",
+    "name": "SplitEase",
+    "short_name": "SplitEase",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#009688",
+    "theme_color": "#009688",
+    "description": "SplitEase — split expenses with friends and settle up easily.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

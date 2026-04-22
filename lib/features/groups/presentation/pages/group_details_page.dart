@@ -124,10 +124,9 @@ class GroupDetailsPage extends StatelessWidget {
     final String? link = appState.buildInviteLinkForActiveGroup();
     if (link == null) return;
     
-    final String message = 'Hey! Join my Splitwise group "${group.name}" to track our shared expenses and easily settle up: $link';
+    final String message = 'Hey! Join my SplitEase group "${group.name}" to track our shared expenses and easily settle up: $link';
     
-    // Fallback to clipboard if share isn't supported, but share_plus handles that on Web too
-    await Share.share(message, subject: 'Join ${group.name} on Splitwise');
+    await Share.share(message, subject: 'Join ${group.name} on SplitEase');
   }
 
   Future<void> _downloadPDFReport(BuildContext context, ExpenseGroup group) async {
@@ -146,7 +145,7 @@ class GroupDetailsPage extends StatelessWidget {
       currencyCode: appState.localCurrencyCode ?? 'USD',
     );
     
-    final String filename = 'Splitwise_${group.name.replaceAll(' ', '_')}_Report.pdf';
+    final String filename = 'SplitEase_${group.name.replaceAll(' ', '_')}_Report.pdf';
     downloadFile(filename, pdfBytes, mimeType: 'application/pdf');
     
     if (context.mounted) {

@@ -32,7 +32,7 @@ class _ProfileSetupPageState extends State<ProfileSetupPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Text('Welcome to Splitwise', style: Theme.of(context).textTheme.headlineSmall),
+              Text('Welcome to SplitEase', style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 8),
               const Text(
                 'Create your local profile once. Your details are saved on device and reused while creating or joining groups.',

@@ -15,7 +15,7 @@ class GroupsPage extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Splitwise'),
+        title: const Text('SplitEase'),
         actions: <Widget>[
           IconButton(
             icon: const Icon(Icons.search),
@@ -42,7 +42,7 @@ class GroupsPage extends StatelessWidget {
                           Icon(Icons.flight_takeoff, size: 64, color: Theme.of(context).colorScheme.primary),
                           const SizedBox(height: 16),
                           Text(
-                            'Welcome to Splitwise\nStart by creating a new group.',
+                            'Welcome to SplitEase\nStart by creating a new group.',
                             textAlign: TextAlign.center,
                             style: Theme.of(context).textTheme.titleMedium,
                           ),

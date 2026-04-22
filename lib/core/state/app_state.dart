@@ -419,7 +419,7 @@ class AppStateController extends ChangeNotifier {
     }
 
     final Uri nativeUri = Uri(
-      scheme: 'splitwise',
+      scheme: 'splitease',
       host: 'join',
       queryParameters: <String, String>{
         'groupId': group.id,
@@ -457,7 +457,7 @@ class AppStateController extends ChangeNotifier {
 
     final bool isJoinInFragment = uri.fragment.startsWith('/join');
     final bool isSupportedLink =
-        (uri.scheme == 'splitwise' && uri.host == 'join') ||
+        (uri.scheme == 'splitease' && uri.host == 'join') ||
         ((uri.scheme == 'https' || uri.scheme == 'http') &&
             (uri.path.contains('join') || isJoinInFragment));
     if (!isSupportedLink) {

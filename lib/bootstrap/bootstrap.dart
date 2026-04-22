@@ -4,5 +4,5 @@ import '../app/app.dart';
 
 Future<void> bootstrap() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const SplitwiseApp());
+  runApp(const SplitEaseApp());
 }

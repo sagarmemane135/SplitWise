@@ -22,7 +22,7 @@ class FriendsPage extends StatelessWidget {
             Icon(Icons.people_outline, size: 80, color: Theme.of(context).colorScheme.primary.withOpacity(0.5)),
             const SizedBox(height: 16),
             Text(
-              'Add friends to Splitwise',
+              'Add friends to SplitEase',
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 8),
