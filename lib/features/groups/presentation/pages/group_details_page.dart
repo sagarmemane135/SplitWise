@@ -9,6 +9,7 @@ import '../../../../core/utils/export.dart';
 import '../../../../core/utils/pdf_generator.dart';
 import '../../../../domain/entities/expense.dart';
 import '../../../../domain/entities/group.dart';
+import '../../../../domain/entities/group_member.dart';
 import '../../../debts/presentation/pages/debts_page.dart';
 import '../../../expenses/presentation/pages/add_expense_page.dart';
 import '../../../expenses/presentation/pages/expenses_page.dart';
@@ -22,6 +23,13 @@ class GroupDetailsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final AppStateController appState = AppStateScope.of(context);
+
+    // Check if current user is admin of this group
+    final String? myUserId = appState.localProfileUserId;
+    final bool isAdmin = myUserId != null &&
+        group.members.any((GroupMember m) => m.id == myUserId && m.role == MemberRole.admin);
+
     return DefaultTabController(
       length: 4,
       child: Scaffold(
@@ -43,6 +51,13 @@ class GroupDetailsPage extends StatelessWidget {
               tooltip: 'Export PDF',
               onPressed: () => _downloadPDFReport(context, group),
             ),
+            if (isAdmin)
+              IconButton(
+                icon: const Icon(Icons.delete_forever_rounded),
+                tooltip: 'Delete Group',
+                color: Colors.red,
+                onPressed: () => _confirmDeleteGroup(context, appState),
+              ),
           ],
           bottom: const TabBar(
             tabs: <Widget>[
@@ -138,6 +153,42 @@ class GroupDetailsPage extends StatelessWidget {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Report Downloaded!')),
       );
+    }
+  }
+
+  Future<void> _confirmDeleteGroup(BuildContext context, AppStateController appState) async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext ctx) {
+        return AlertDialog(
+          icon: const Icon(Icons.delete_forever_rounded, color: Colors.red, size: 36),
+          title: const Text('Delete Group?'),
+          content: Text(
+            'Are you sure you want to permanently delete "${group.name}"?\n\nThis will remove all expenses, comments and activity history. This action cannot be undone.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed == true && context.mounted) {
+      final String? error = appState.deleteGroup(group.id);
+      if (error != null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      } else {
+        // Pop back to the groups list
+        Navigator.of(context).popUntil((Route<dynamic> route) => route.isFirst);
+      }
     }
   }
 }

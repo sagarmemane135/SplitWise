@@ -534,22 +534,28 @@ class AppStateController extends ChangeNotifier {
   }
 
   String? deleteGroup(String groupId) {
-    if (_groups.length <= 1) {
-      return 'At least one group must exist.';
+    final ExpenseGroup? group = _groupById(groupId);
+    if (group == null) return 'Group not found.';
+
+    // Only the admin can delete the group
+    if (_localProfileUserId != null) {
+      final GroupMember? me = group.members.where((GroupMember m) => m.id == _localProfileUserId).firstOrNull;
+      if (me == null || me.role != MemberRole.admin) {
+        return 'Only the group admin can delete this group.';
+      }
     }
 
-    _groups.removeWhere((ExpenseGroup group) => group.id == groupId);
+    _groups.removeWhere((ExpenseGroup g) => g.id == groupId);
     _expensesByGroup.remove(groupId);
     _commentsByGroup.remove(groupId);
+    _activitiesByGroup.remove(groupId);
     _identityByGroup.remove(groupId);
+    _joinTokenByGroup.remove(groupId);
 
-    if (_activeGroupId == groupId && _groups.isNotEmpty) {
-      _activeGroupId = _groups.first.id;
+    if (_activeGroupId == groupId) {
+      _activeGroupId = _groups.isNotEmpty ? _groups.first.id : null;
     }
     _persistAppState();
-    if (!_isApplyingRemoteSync) {
-      _broadcastActiveGroupUpdate();
-    }
     notifyListeners();
     return null;
   }
