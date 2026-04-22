@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 
 ThemeData buildAppTheme() {
-  const Color primary = Color(0xFF1CC29F); // Splitwise Teal
+  const Color primary = Color(0xFF1CC29F); // SplitEase Teal
   const Color background = Color(0xFFF7F7F9);
   const Color surface = Color(0xFFFFFFFF);
   const Color surfaceVariant = Color(0xFFEEEEEE);
   const Color textPrimary = Color(0xFF333333);
   const Color textSecondary = Color(0xFF888888);
   const Color successColor = Color(0xFF1CC29F);
-  const Color errorColor = Color(0xFFFF5252); // Splitwise Orange/Red for debts
+  const Color errorColor = Color(0xFFFF5252); // SplitEase Orange/Red for debts
 
   return ThemeData(
     useMaterial3: true,
